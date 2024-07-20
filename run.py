@@ -7,13 +7,21 @@ import re
 import json
 
 
-def web_search(search_query):
-    results = DDGS().text(search_query, max_results=2)
+def web_search(search_query, get_web_contents=True):
+    results = DDGS().text(search_query, max_results=1)
+    sdata = []
+
+    for result in results:
+        web = fetch_url(result['href'])
+        sdata.append({'title': result['title'], 'content': extract(web)})
+
     # results = json.dumps(results, indent=1)
-    return results
+    return sdata
 
 
 # https://github.com/ollama/ollama-python/blob/main/examples/async-chat-stream/main.py
+# https://github.com/ollama/ollama/blob/main/docs/api.md#request-raw-mode
+# https://github.com/ollama/ollama/blob/main/docs/modelfile.md
 def generate(prompt):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
     return ollama.generate(
@@ -29,16 +37,16 @@ def generate(prompt):
             # 'stop': ['</s>', '}}]'],
             'top_k': 1,
             #'cache': False,
-            # 'tfs_z': 2.0,
+            'tfs_z': 2.0,
             'num_ctx': 4048,
             'temperature': 0.,
             'top_p': 0.0
         },
     )
 
-
 def get_llm_response(prompt):
     ret = ''
+    print('', flush=True)
     for token in generate(prompt):
         print(token['response'], end='', flush=True)
         ret += token['response']
@@ -46,7 +54,7 @@ def get_llm_response(prompt):
 
 
 def extract_response(response):
-    if '[TOOL_CALLS]' in response or 'web_search' in response:
+    if '[TOOL_CALLS]' in response: #or 'web_search' in response:
         response = response.replace('[TOOL_CALLS]', '')
         pattern = r'\[(.*?)\]'
         fcall = re.findall(pattern, response)[0]
@@ -66,43 +74,42 @@ def build_init_prompt(question):
     return {
         "messages": [],
         "role": "user",
-        # "system": SYSTEM_PROMPT,
+        "system": SYSTEM_PROMPT,
         "prompt": question,
-        "tools": TOOLS, #json.dumps(TOOLS, indent=1).split()),
-        # "toolres": ''
+        "tools": TOOLS,
     }
 
-question = "What is the weather today?"
+while True:
+    # question = "What is the recent news of Bangladesh?"
+    question = input("\n\nAsk something: ")
+    init_prompt = build_init_prompt(question)
+    prompt = prompt_builder(init_prompt)
+    print(prompt)
 
-init_prompt = build_init_prompt(question)
-prompt = prompt_builder(init_prompt)
-print(prompt)
+    memory = push_memory(init_prompt)
+    response = get_llm_response(prompt)
+    output = extract_response(response)
 
-response = get_llm_response(prompt)
-output = extract_response(response)
-
-memory = push_memory(init_prompt)
-memory = {
-    'messages': memory['messages'],
-    'role': 'assistant',
-    'toolcalls': response, 
-}
-memory = push_memory(memory)
-memory = {
-    'messages': memory['messages'],
-    'role': 'tool',
-    'toolres': output,
-}
-
-# print("\memory")
-# print(memory)
-
-print("\n*")
-print(json.dumps(memory, indent=1))
-print("*")
-
-prompt = prompt_builder(memory)
-print("\n*")
-print(prompt)
-
-response = get_llm_response(prompt)
+    if output:
+        memory = {
+            'messages': memory['messages'],
+            'role': 'assistant',
+            'toolcalls': response.replace('[TOOL_CALLS]', '').strip(), 
+        }
+        memory = push_memory(memory)
+        memory = {
+            'messages': memory['messages'],
+            'role': 'tool',
+            'toolres': output,
+        }
+        prompt = prompt_builder(memory)
+        # print("\n*")
+        # print(prompt)
+        response = get_llm_response(prompt)
+    else:
+        memory = {
+            'messages': memory['messages'],
+            'role': 'assistant',
+            'response': response
+        }
+        memory = push_memory(memory)

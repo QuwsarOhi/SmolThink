@@ -2,7 +2,7 @@
 
 # SYSTEM_PROMPT = "You are a helpful AI named Jarvis. You can perform function calling to search the web and give precise and short answers."
 
-SYSTEM_PROMPT = "You are a helpful AI assistant. Perform function calling to search the web, visit urls. Give precise answers by visiting urls with function calling. Do not give reference to websites or urls."
+SYSTEM_PROMPT = "You are a helpful AI assistant.\n"
 
 TOOLS = [
     {
@@ -22,23 +22,23 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "visit_url",
-            "description": "Visit a particular url",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL to browse",
-                    }
-                },
-                "required": ["url"],
-            },
-        },
-    }
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "visit_url",
+    #         "description": "Visit a particular url",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "url": {
+    #                     "type": "string",
+    #                     "description": "URL to browse",
+    #                 }
+    #             },
+    #             "required": ["url"],
+    #         },
+    #     },
+    # }
 ]
 
 def push_memory(data):
@@ -76,37 +76,37 @@ def prompt_builder(data):
     for idx, message in enumerate(data.get('messages')):
         if message.get('role') == 'user':
             if message.get('tools') and idx == 0:
-                prompt += f"[AVAILABLE_TOOLS] {message['tools']} [/AVAILABLE_TOOLS]\n"
+                prompt += f"[AVAILABLE_TOOLS] {message['tools']} [/AVAILABLE_TOOLS] "
             prompt += "[INST] "
             if message.get('system') and idx == 0:
                 prompt += f"{message['system']}\n"
-            prompt += f"{message.get('prompt')} [/INST]\n"
+            prompt += f"{message.get('prompt')} [/INST]"
 
         elif message.get('role') == 'assistant':
             if message.get('response'):
                 prompt += message['response']
             elif message.get('toolcalls'):
-                prompt += f"[TOOL_CALLS] \n{message['toolcalls']}\n"
-            prompt += "</s>\n"
+                prompt += f"[TOOL_CALLS] {message['toolcalls']}"
+            prompt += "</s>"
 
         elif message.get('role') == 'tool':
-            prompt += f"[TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS]\n"
+            prompt += f" [TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS] "
     
     prompt += "\n"
     if data.get('role') == 'user' and data.get('tools'):
-        prompt += f"[AVAILABLE_TOOLS] {data['tools']} [/AVAILABLE_TOOLS]\n"
+        prompt += f"[AVAILABLE_TOOLS] {data['tools']} [/AVAILABLE_TOOLS] "
     if data.get('role') == 'user':
         prompt += "[INST] "
     if data.get('system'):
-        prompt += data['system'] + "\n"
+        prompt += data['system']
     if data.get('prompt'):
-        prompt += data['prompt'] + " [/INST]\n"
+        prompt += data['prompt'] + " [/INST] "
     if data.get('response'):
-        prompt += data['response'] + " </s>\n"
+        prompt += data['response'] + " </s> "
     if data.get('toolcalls'):
-        prompt += data['toolcalls'] + " </s>\n"
+        prompt += data['toolcalls'] + " </s> "
     if data.get('toolres'):
-        prompt += f"[TOOL_RESULTS] {data['toolres']} [/TOOL_RESULTS]\n"
+        prompt += f"[TOOL_RESULTS] {data['toolres']} [/TOOL_RESULTS] "
 
     return prompt
 
