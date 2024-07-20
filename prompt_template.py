@@ -1,37 +1,75 @@
 # https://ollama.com/library/mistral/blobs/491dfa501e59
-# 
-# {{- if .Messages }}
-#     {{- range $index, $_ := .Messages }}
-#         {{- if eq .Role "user" }}
-#             {{- if and (eq (len (slice $.Messages $index)) 1) $.Tools }}
-#                 [AVAILABLE_TOOLS] {{ $.Tools }}[/AVAILABLE_TOOLS]
-#             {{- end }}
-#             [INST] 
-#             {{ if and $.System (eq (len (slice $.Messages $index)) 1) }}
-#                 {{ $.System }}
-#             {{ end }}
-#             {{ .Content }}[/INST]
-#        
-#         {{- else if eq .Role "assistant" }}
-#             {{- if .Content }} 
-#                 {{ .Content }}
-#             {{- else if .ToolCalls }}
-#                 [TOOL_CALLS] [
-#                     {{- range .ToolCalls }}
-#                     {"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}} {{- end }}]
-#             {{- end }}</s>
-#        
-#         {{- else if eq .Role "tool" }}
-#             [TOOL_RESULTS] {"content": {{ .Content }}} [/TOOL_RESULTS] 
-#         {{- end }}
-#   
-#     {{- end }}
-#
-# {{- else }}[INST] {{ if .System }}{{ .System }}
-# {{ end }}{{ .Prompt }}[/INST]
-# {{- end }} {{ .Response }}
-# {{- if .Response }}</s>
-# {{- end }}
+
+# SYSTEM_PROMPT = "You are a helpful AI named Jarvis. You can perform function calling to search the web and give precise and short answers."
+
+SYSTEM_PROMPT = "You are a helpful AI assistant. Perform function calling to search the web, visit urls. Give precise answers by visiting urls with function calling. Do not give reference to websites or urls."
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Perform web search",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": "Query for web search",
+                    }
+                },
+                "required": ["search_query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "visit_url",
+            "description": "Visit a particular url",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to browse",
+                    }
+                },
+                "required": ["url"],
+            },
+        },
+    }
+]
+
+def push_memory(data):
+    messages = data.get('messages', [])
+    new_msg = {}
+
+    if data['role'] == 'user':
+        new_msg = {
+            'role': 'user',
+            'prompt': data['prompt'],
+        }
+        if data.get('system'):
+            new_msg['system'] = data['system']
+        if data.get('tools'):
+            new_msg['tools'] = data['tools']
+
+    elif data['role'] == 'assistant':
+        new_msg['role'] = 'assistant'
+        if data.get('response'):
+            new_msg['response'] = data['response']
+        elif data.get('toolcalls'):
+            new_msg['toolcalls'] = data['toolcalls']
+
+    elif data['role'] == 'tool':
+        new_msg = {
+            'role': 'tool',
+            'toolres': data['toolres']
+        }
+
+    return {"messages": messages + [new_msg]}
+
 
 def prompt_builder(data):
     prompt = ""
@@ -42,34 +80,33 @@ def prompt_builder(data):
             prompt += "[INST] "
             if message.get('system') and idx == 0:
                 prompt += f"{message['system']}\n"
-            prompt += f"{message.get('content')} [/INST]\n"
+            prompt += f"{message.get('prompt')} [/INST]\n"
 
         elif message.get('role') == 'assistant':
-            if message.get('content'):
-                prompt += message['content']
+            if message.get('response'):
+                prompt += message['response']
             elif message.get('toolcalls'):
-                prompt += f"[TOOL_CALLS] [\n{message['toolcalls']}\n]"
+                prompt += f"[TOOL_CALLS] \n{message['toolcalls']}\n"
             prompt += "</s>\n"
 
         elif message.get('role') == 'tool':
-            prompt += f"[TOOL_RESULTS] {message['content']} [/TOOL_RESULTS]\n"
+            prompt += f"[TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS]\n"
     
     prompt += "\n"
-
-    if data.get('tools'):
+    if data.get('role') == 'user' and data.get('tools'):
         prompt += f"[AVAILABLE_TOOLS] {data['tools']} [/AVAILABLE_TOOLS]\n"
-    prompt += "[INST] "
+    if data.get('role') == 'user':
+        prompt += "[INST] "
     if data.get('system'):
         prompt += data['system'] + "\n"
-    if data.get('prompt')
-        prompt += data.get['prompt'] + " [/INST]\n"
-    
+    if data.get('prompt'):
+        prompt += data['prompt'] + " [/INST]\n"
     if data.get('response'):
-        prompt += data['response'] + " </s>"
+        prompt += data['response'] + " </s>\n"
     if data.get('toolcalls'):
-        pass
-    if data.get('toolresult'):
-        pass
+        prompt += data['toolcalls'] + " </s>\n"
+    if data.get('toolres'):
+        prompt += f"[TOOL_RESULTS] {data['toolres']} [/TOOL_RESULTS]\n"
 
     return prompt
 
@@ -77,16 +114,18 @@ def prompt_builder(data):
 if __name__ == '__main__':    
     context = {
         "messages": [
-            {"role": "user", "content": "User message", "system": 'system message', "tools": "some_tool"},
-            {"role": "assistant", "content": "Assistant response", },
+            {"role": "user", "prompt": "User message", "system": 'system message', "tools": "some_tool"},
+            {"role": "assistant", "response": "Assistant response", },
             {"role": "assistant", "toolcalls": [{"Function": {"Name": "tool_func", "Arguments": ["arg1", "arg2"]}}]},
-            {"role": "tool", "content": "Tool result"},
+            {"role": "tool", "toolres": "Tool result"},
         ],
         "prompt": "Initial prompt",
         "response": "Final response",
         "system": "system prompt",
         "tools": "tools",
-        "tool_result": "result"
+        "tool_result": "result",
+        "role": "user"
     }
 
     print(prompt_builder(context))
+    push_memory(context)
