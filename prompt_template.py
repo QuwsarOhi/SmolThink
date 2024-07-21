@@ -2,7 +2,7 @@
 
 # SYSTEM_PROMPT = "You are a helpful AI named Jarvis. You can perform function calling to search the web and give precise and short answers."
 
-SYSTEM_PROMPT = "You are a helpful AI assistant.\n"
+SYSTEM_PROMPT = "You are a expert AI assistant. Make correct 'tool_calls' from 'available_tools' based on user 'question' and give brief answer. Make 'tool_calls' without any comments. Only make 'tool_calls' which are available in 'available_tools'.\n"
 
 TOOLS = [
     {
@@ -87,7 +87,7 @@ def prompt_builder(data):
                 prompt += message['response']
             elif message.get('toolcalls'):
                 prompt += f"[TOOL_CALLS] {message['toolcalls']}"
-            prompt += "</s>"
+            # prompt += "</s>"
 
         elif message.get('role') == 'tool':
             prompt += f" [TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS] "
@@ -102,9 +102,12 @@ def prompt_builder(data):
     if data.get('prompt'):
         prompt += data['prompt'] + " [/INST] "
     if data.get('response'):
-        prompt += data['response'] + " </s> "
+        prompt += data['response'] #+ " </s> "
     if data.get('toolcalls'):
-        prompt += data['toolcalls'] + " </s> "
+        prompt += data['toolcalls']
+        # if data['toolcalls'] != '[TOOL_CALL]':
+        #     prompt += " </s> "
+
     if data.get('toolres'):
         prompt += f"[TOOL_RESULTS] {data['toolres']} [/TOOL_RESULTS] "
 

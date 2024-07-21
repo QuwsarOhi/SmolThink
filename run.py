@@ -13,7 +13,7 @@ def web_search(search_query, get_web_contents=True):
 
     for result in results:
         web = fetch_url(result['href'])
-        sdata.append({'title': result['title'], 'content': extract(web)})
+        sdata.append({'title': result['title'], 'content': extract(web)[:4000]})
 
     # results = json.dumps(results, indent=1)
     return sdata
@@ -37,8 +37,8 @@ def generate(prompt):
             # 'stop': ['</s>', '}}]'],
             'top_k': 1,
             #'cache': False,
-            'tfs_z': 2.0,
-            'num_ctx': 4048,
+            # 'tfs_z': 2.0,
+            'num_ctx': 4000,
             'temperature': 0.,
             'top_p': 0.0
         },
@@ -77,14 +77,15 @@ def build_init_prompt(question):
         "system": SYSTEM_PROMPT,
         "prompt": question,
         "tools": TOOLS,
+        # "toolcalls": '[TOOL_CALL]'
     }
 
 while True:
     # question = "What is the recent news of Bangladesh?"
-    question = input("\n\nAsk something: ")
+    question = '[QUESTION] ' + input("\n\nAsk something: ") + ' [QUESTION]'
     init_prompt = build_init_prompt(question)
     prompt = prompt_builder(init_prompt)
-    print(prompt)
+    print(prompt, end='----\n')
 
     memory = push_memory(init_prompt)
     response = get_llm_response(prompt)
@@ -103,8 +104,8 @@ while True:
             'toolres': output,
         }
         prompt = prompt_builder(memory)
-        # print("\n*")
-        # print(prompt)
+        print("\n------------------")
+        print(prompt, end='\n--------------\n')
         response = get_llm_response(prompt)
     else:
         memory = {
