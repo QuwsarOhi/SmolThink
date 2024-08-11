@@ -24,8 +24,12 @@ def web_search(search_query, get_web_contents=True):
 # https://github.com/ollama/ollama/blob/main/docs/modelfile.md
 def generate(prompt):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
+    prompt = f"<s>{prompt.strip()}" #[TOOL_CALLS] "
+    # prompt = "<s>" + prompt.strip()
+    print(f"PROMPT: ----------------\n{prompt}\n----------------")
     return ollama.generate(
-        model = 'mistral',
+        # model = 'mistral:7b-instruct-q8_0',
+        model = 'mistral:instruct',
         # system = system,
         # Raw is set to true to feed the question as needed
         raw=True,
@@ -74,7 +78,7 @@ def build_init_prompt(question):
     return {
         "messages": [],
         "role": "user",
-        "system": SYSTEM_PROMPT,
+        # "system": SYSTEM_PROMPT,
         "prompt": question,
         "tools": TOOLS,
         # "toolcalls": '[TOOL_CALL]'
@@ -82,10 +86,12 @@ def build_init_prompt(question):
 
 while True:
     # question = "What is the recent news of Bangladesh?"
-    question = '[QUESTION] ' + input("\n\nAsk something: ") + ' [QUESTION]'
+    # question = '[QUESTION] ' + input("\n\nAsk something: ") + ' [QUESTION]\n' + \
+        # 'Now generate answer based on the \'question\'. Make \'TOOL_CALLS\' if necessary.'
+    question = input("\n\nAsk something: ")
     init_prompt = build_init_prompt(question)
     prompt = prompt_builder(init_prompt)
-    print(prompt, end='----\n')
+    # print(prompt, end='----\n')
 
     memory = push_memory(init_prompt)
     response = get_llm_response(prompt)
@@ -104,8 +110,8 @@ while True:
             'toolres': output,
         }
         prompt = prompt_builder(memory)
-        print("\n------------------")
-        print(prompt, end='\n--------------\n')
+        # print("\n------------------")
+        # print(prompt, end='\n--------------\n')
         response = get_llm_response(prompt)
     else:
         memory = {

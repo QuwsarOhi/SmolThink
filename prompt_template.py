@@ -2,20 +2,20 @@
 
 # SYSTEM_PROMPT = "You are a helpful AI named Jarvis. You can perform function calling to search the web and give precise and short answers."
 
-SYSTEM_PROMPT = "You are a expert AI assistant. Make correct 'tool_calls' from 'available_tools' based on user 'question' and give brief answer. Make 'tool_calls' without any comments. Only make 'tool_calls' which are available in 'available_tools'.\n"
+SYSTEM_PROMPT = "You are a helpful assistant.\n"
 
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Perform web search",
+            "description": "Perform web search.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "search_query": {
                         "type": "string",
-                        "description": "Query for web search",
+                        "description": "Query for web search.",
                     }
                 },
                 "required": ["search_query"],
@@ -92,7 +92,7 @@ def prompt_builder(data):
         elif message.get('role') == 'tool':
             prompt += f" [TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS] "
     
-    prompt += "\n"
+    # prompt += "\n"
     if data.get('role') == 'user' and data.get('tools'):
         prompt += f"[AVAILABLE_TOOLS] {data['tools']} [/AVAILABLE_TOOLS] "
     if data.get('role') == 'user':
