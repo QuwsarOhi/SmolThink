@@ -7,3 +7,4 @@
 * Web search
 * Remember the past (using RAG)
 * ???
+* Text-2-speech [Parler](https://github.com/huggingface/parler-tts)
