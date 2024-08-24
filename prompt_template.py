@@ -1,134 +1,86 @@
-# https://ollama.com/library/mistral/blobs/491dfa501e59
+from typing import List, Dict
 
-# SYSTEM_PROMPT = "You are a helpful AI named Jarvis. You can perform function calling to search the web and give precise and short answers."
+# Prompt dicts:
+# {'role': ['user', 'assistant', 'system'], 'content': str}
+# {'role': ['tool_def', 'tool_call'], 'content': dict}
 
-SYSTEM_PROMPT = "You are a helpful assistant.\n"
+# Prompt template:
+# https://community.aws/content/2dFNOnLVQRhyrOrMsloofnW0ckZ/how-to-prompt-mistral-ai-models-and-why?lang=en
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Perform web search.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "search_query": {
-                        "type": "string",
-                        "description": "Query for web search.",
-                    }
-                },
-                "required": ["search_query"],
-            },
-        },
-    },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "visit_url",
-    #         "description": "Visit a particular url",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "url": {
-    #                     "type": "string",
-    #                     "description": "URL to browse",
-    #                 }
-    #             },
-    #             "required": ["url"],
-    #         },
-    #     },
-    # }
-]
+def prompt_format(prompts: List[Dict]):
+    prompt_str = "<s>"
+    prev_role = None
+    for prompt in prompts:
+        if prompt['role'] in ['system', 'user']:
+            # Add end/start token
+            if prev_role in ['tool_call', 'assistant']:
+                prompt_str += "</s>"
+            # Token for system/user prompt
+            if prev_role not in ['system', 'user']:
+                prompt_str += "[INST] "
+            # Seperate system prompt
+            if prompt['role'] == 'system':
+                prompt_str += prompt['content'] + "\n\n"
+            else:
+                prompt_str += prompt['content']
 
-def push_memory(data):
-    messages = data.get('messages', [])
-    new_msg = {}
+        elif prompt['role'] in ['tool_def']:
+            # Add ending token for system/user
+            if prev_role in ['system', 'user']:
+                prompt_str += " [/INST]\n"
+            prompt_str += f"[AVAILABLE_TOOLS] {prompt['content']} [/AVAILABLE_TOOLS] "
+        elif prompt['role'] in ['tool_call']:
+            # Add ending token for system/user
+            if prev_role in ['system', 'user']:
+                prompt_str += " [/INST]\n"
+            prompt_str += f" [TOOL_CALLS] {prompt['content']} [/TOOL_CALLS]"
+        elif prompt['role'] in ['assistant']:
+            # Add ending token for system/user
+            if prev_role in ['system', 'user']:
+                prompt_str += " [/INST]\n"
+            prompt_str += prompt['content']
 
-    if data['role'] == 'user':
-        new_msg = {
-            'role': 'user',
-            'prompt': data['prompt'],
-        }
-        if data.get('system'):
-            new_msg['system'] = data['system']
-        if data.get('tools'):
-            new_msg['tools'] = data['tools']
-
-    elif data['role'] == 'assistant':
-        new_msg['role'] = 'assistant'
-        if data.get('response'):
-            new_msg['response'] = data['response']
-        elif data.get('toolcalls'):
-            new_msg['toolcalls'] = data['toolcalls']
-
-    elif data['role'] == 'tool':
-        new_msg = {
-            'role': 'tool',
-            'toolres': data['toolres']
-        }
-
-    return {"messages": messages + [new_msg]}
-
-
-def prompt_builder(data):
-    prompt = ""
-    for idx, message in enumerate(data.get('messages')):
-        if message.get('role') == 'user':
-            if message.get('tools') and idx == 0:
-                prompt += f"[AVAILABLE_TOOLS] {message['tools']} [/AVAILABLE_TOOLS] "
-            prompt += "[INST] "
-            if message.get('system') and idx == 0:
-                prompt += f"{message['system']}\n"
-            prompt += f"{message.get('prompt')} [/INST]"
-
-        elif message.get('role') == 'assistant':
-            if message.get('response'):
-                prompt += message['response']
-            elif message.get('toolcalls'):
-                prompt += f"[TOOL_CALLS] {message['toolcalls']}"
-            # prompt += "</s>"
-
-        elif message.get('role') == 'tool':
-            prompt += f" [TOOL_RESULTS] {message['toolres']} [/TOOL_RESULTS] "
+        prev_role = prompt['role']
     
-    # prompt += "\n"
-    if data.get('role') == 'user' and data.get('tools'):
-        prompt += f"[AVAILABLE_TOOLS] {data['tools']} [/AVAILABLE_TOOLS] "
-    if data.get('role') == 'user':
-        prompt += "[INST] "
-    if data.get('system'):
-        prompt += data['system']
-    if data.get('prompt'):
-        prompt += data['prompt'] + " [/INST] "
-    if data.get('response'):
-        prompt += data['response'] #+ " </s> "
-    if data.get('toolcalls'):
-        prompt += data['toolcalls']
-        # if data['toolcalls'] != '[TOOL_CALL]':
-        #     prompt += " </s> "
-
-    if data.get('toolres'):
-        prompt += f"[TOOL_RESULTS] {data['toolres']} [/TOOL_RESULTS] "
-
-    return prompt
+    # if prev_role in ['assistant']
+    if prev_role in ['system', 'user'] and not prompts[-1].get('lead', False):
+        prompt_str += ' [/INST]\n'
+    
+    return prompt_str
 
 
-if __name__ == '__main__':    
-    context = {
-        "messages": [
-            {"role": "user", "prompt": "User message", "system": 'system message', "tools": "some_tool"},
-            {"role": "assistant", "response": "Assistant response", },
-            {"role": "assistant", "toolcalls": [{"Function": {"Name": "tool_func", "Arguments": ["arg1", "arg2"]}}]},
-            {"role": "tool", "toolres": "Tool result"},
-        ],
-        "prompt": "Initial prompt",
-        "response": "Final response",
-        "system": "system prompt",
-        "tools": "tools",
-        "tool_result": "result",
-        "role": "user"
-    }
+# Testing
+if __name__ == '__main__':
+    # test_prompts = [
+    #     {'role': 'tool_def', 'content': {'f': '(xyz)'}},
+    #     {'role': 'system', 'content': 'This is a system prompt.'},
+    #     {'role': 'user', 'content': 'This is a user prompt.'},
+    #     {'role': 'tool_call', 'content': 'tool calling mechanism'},
+    #     {'role': 'user', 'content': 'Something user said.'},
+    #     {'role': 'assistant', 'content': 'This is a assistant reply'},
+    #     # {'role': 'tool_call', 'content': 'another tool calling mechanism'},
+    #     {'role': 'user', 'content': 'what is LLM?'}
+    # ]
 
-    print(prompt_builder(context))
-    push_memory(context)
+
+    test_prompts = [
+        {'role': 'user', 'content': '''You are a helpful code assistant. Your task is to generate a valid JSON object based on the given information. So for instance the following:
+    name: John
+    lastname: Smith
+    address: #1 Samuel St.
+    would be converted to:'''},
+        {'role': 'assistant', 'content': '''{
+    "address": "#1 Samuel St.",
+    "lastname": "Smith",
+    "name": "John"
+    }'''},
+        {'role': 'user', 'content': '''name: Ted
+    lastname: Pot
+    address: #1 Bisson St.'''}
+    ]
+
+    prompt = prompt_format(test_prompts)
+    print(prompt)
+    ret = get_llm_response(prompt)
+
+    print("**" + ret + "**")
