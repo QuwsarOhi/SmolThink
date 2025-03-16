@@ -48,8 +48,8 @@ SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
 # LORA_PATH = None
-# dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
-dataset = None
+dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
+# dataset = None
 
 # %%
 chat_template = """{%- if tools %}
@@ -111,36 +111,14 @@ chat_template = """{%- if tools %}
     {% endif %}
 {%- endif %}"""
 
-# class SpecialTokens(str, Enum):
-#     think_start = "<think>",
-#     think_end = "</think>",
-#     answer_start = "<answer>",
-#     answer_end = "</answer>",
-#     tool_def_start = "<tool>",
-#     tool_def_end = "</tool>",
-#     tool_call_start = "<tool_call>",
-#     tool_call_end = "</tool_call>",
-#     tool_res_start = "<tool_response>",
-#     tool_res_end = "</tool_response>",
-
-#     @classmethod
-#     def list(cls):
-#         return [c.value for c in cls]
-
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_PATH,
     add_bos_token=True,
     add_eos_token=True,
-    # additional_special_tokens=SpecialTokens.list()
 )
 tokenizer.chat_template = chat_template
 tokenizer.pad_token = tokenizer.eos_token
 streamer = TextStreamer(tokenizer, skip_prompt=True)
-
-# print("New token map")
-# for v in SpecialTokens.list():
-#     print(v, '->', tokenizer.encode(v))
-# print("---")
 
 print(tokenizer.apply_chat_template([
     {"role": "user", "content": "How are you?"},
@@ -266,25 +244,6 @@ if lora_r:
     print(f"Approx size: {lora_param * 2e-6:.2f} mb")
 
 # %%
-
-# model_clone.load_state_dict(
-#     copy.deepcopy(
-#         peft.PeftModel.from_pretrained(
-#             model = AutoModelForCausalLM.from_pretrained(
-#             # FILE_PATH,
-#             "/Users/ohi/Documents/GitHub/PersonalAssistant/SmolThink-360M-sft-r64/checkpoint-8700",
-#             device_map="mps",
-#             low_cpu_mem_usage=True,
-#             attn_implementation='eager',
-#             # attn_implementation='eager', # 'flash_attention_2',
-#             torch_dtype=torch.bfloat16,
-#             trust_remote_code=True,
-#             use_cache=False,
-#         ),
-#         LORA_PATH,
-#         is_trainable=False, # 👈 here,
-# )))
-# print(model)
 print(f"Model took {model.get_memory_footprint()/1e9:.2f} GB of space (with buffer)")
 if lora_r:
     print("Are LoRA weight of embed_tokens and lm_head same?", torch.equal(model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight, model.base_model.model.lm_head.modules_to_save["smolthink"].weight))
@@ -296,8 +255,6 @@ else:
     print("Do model embed_tokens and lm_head sharing same memory?", model.model.embed_tokens.weight.data.data_ptr() == model.lm_head.weight.data.data_ptr())
 
 # %%
-# if DATASET == "OPENTHOUGHTS":
-
 def length_filter(data, limit):
     # if data['thought_len'] + data['answer_len'] > 896:
         # return False
@@ -342,10 +299,7 @@ if not dataset:
     # print(openthought_dataset[0]['conversations'])
 
 # %%
-# if DATASET == "R1-DISTILL":
-
 if not dataset:
-# if True:
     def r1distillsft_conv(data):
         thought_len, answer_len = 0, 0
         for idx, conv in enumerate(data['reannotated_messages']):
@@ -720,16 +674,6 @@ class WeightTieCallback(transformers.TrainerCallback):
     def on_train_begin(self, *args, **kwargs):
         model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight = model.base_model.model.lm_head.modules_to_save["smolthink"].weight
         print("------ Weight tied ------")
-
-# class SaveSafetensor(transformers.TrainerCallback):
-#     def __init__(self):
-#         self.step = 0
-#     def on_step_end(self, args, state, control, logs=None, **kwargs):
-#         if self.step % 25 == 0:
-#             model.save_pretrained(f"Smollm-{SIZE}-lora", safe_serialization=False)
-#             # save_model(model, "Smollm-360M.safetensors")
-#             # print("Model saved")
-#         self.step += 1
 
 # %%
 trainer = Trainer(

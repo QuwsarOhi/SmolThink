@@ -473,29 +473,29 @@ prompt = tokenizer.apply_chat_template([
 # print(prompt)
 
 # model.generation_config.do_sample = True
-gen = inference(
-    prompt, 
-    low_memory=True,
-    do_sample=False,
-    # top_k=10,
-    # do_sample=True, 
-    # temperature=0.9, 
-    # top_k=10, 
-    # repetition_penalty=1.1,
-    max_new_tokens=256,
-    # stop_words=["</tool_call>"]
-)
-print("--"*10)
+# gen = inference(
+#     prompt, 
+#     low_memory=True,
+#     do_sample=False,
+#     # top_k=10,
+#     # do_sample=True, 
+#     # temperature=0.9, 
+#     # top_k=10, 
+#     # repetition_penalty=1.1,
+#     max_new_tokens=256,
+#     # stop_words=["</tool_call>"]
+# )
+# print("--"*10)
 # sys.exit()
 
 
 # %%
 msg = [
     # {"role": "user", "content": "Hi"}
-    # {"role": "user", "content": "Write a python code to reverse a string"}
+    {"role": "user", "content": "Write a python code to reverse a string"}
     # {"role": "user", "content": "(a+b)^2=?"}
     # {"role": "user", "content": "What is hadith?"}
-    {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
+    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
 ]
 
 prompt = tokenizer.apply_chat_template(
@@ -512,10 +512,10 @@ gen = inference(
     prompt, 
     low_memory=True,
     do_sample=False, 
-    #temperature=0.5, 
+    # temperature=0.5, 
     #top_k=15, 
-    #repetition_penalty=1.1,
-    max_new_tokens=256,
+    repetition_penalty=1.1,
+    max_new_tokens=512,
     # stop_words=["</answer>"]
 )
 print("--"*10)
