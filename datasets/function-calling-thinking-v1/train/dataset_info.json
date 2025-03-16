@@ -1,0 +1,46 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "hermes-function-calling-thinking-v1",
+  "dataset_size": 13793436,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/Jofthomas/hermes-function-calling-thinking-V1@ee5bf6e5737351f5d444b72689f7ab0ad37fc75f/data/train-00000-of-00001.parquet": {
+      "num_bytes": 3848966,
+      "checksum": null
+    }
+  },
+  "download_size": 3848966,
+  "features": {
+    "conversations": [
+      {
+        "content": {
+          "dtype": "string",
+          "_type": "Value"
+        },
+        "role": {
+          "dtype": "string",
+          "_type": "Value"
+        }
+      }
+    ]
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 17642402,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 13793436,
+      "num_examples": 3570,
+      "dataset_name": "hermes-function-calling-thinking-v1"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

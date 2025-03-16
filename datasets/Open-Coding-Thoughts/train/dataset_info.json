@@ -1,0 +1,46 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "open-coding-thoughts",
+  "dataset_size": 3176966,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/XeTute/Open-Coding-Thoughts@b63d89b184b9048a18e2cd42be298db6e44ab255/data.parquet": {
+      "num_bytes": 1192348,
+      "checksum": null
+    }
+  },
+  "download_size": 1192348,
+  "features": {
+    "instruction": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "input": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "output": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 4369314,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 3176966,
+      "num_examples": 1025,
+      "dataset_name": "open-coding-thoughts"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
