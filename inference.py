@@ -59,12 +59,12 @@ def get_latest_checkpoint(base_directory):
     
     return os.path.join(base_directory, latest_checkpoint)
 
-# SIZE = "360M"
+SIZE = "360M" #"360M"
 # MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
-FILE_PATH = get_latest_checkpoint("/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-360M-sft")
+FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft")
 TOKENIZER_PATH = FILE_PATH
 LORA_PATH = os.path.join(FILE_PATH, "smolthink")
 print("LoRA checkpoint:", LORA_PATH)
@@ -72,6 +72,7 @@ print("LoRA checkpoint:", LORA_PATH)
 # config = peft.PeftConfig.from_pretrained(LORA_PATH)
 model = AutoModelForCausalLM.from_pretrained(
     FILE_PATH,
+    # "/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-360M-sft/checkpoint-28800",
     # MODEL_PATH,
     device_map="mps",
     low_cpu_mem_usage=True,
@@ -125,7 +126,7 @@ print("Do model embed_tokens and lm_head share same weight?", torch.equal(model.
 
 # %%
 chat_template = """{%- if tools %}
-    {{- '<|im_start|>system\\n' }}
+    {{- '<|endoftext|><|im_start|>system\\n' }}
         {%- if messages[0]['role'] == 'system' %}
             {- messages[0]['content'] }}
         {%- else %}
@@ -139,9 +140,9 @@ chat_template = """{%- if tools %}
     {{- \"\\n</tools>\\n\\nYou first think/plan inside <think></think> tags.\\nThen for each function call, return a json object with function name and arguments within <tool_call></tool_call> tags.<|im_end|>\\n\" }}
 {%- else %}
     {%- if messages[0]['role'] == 'system' %}
-        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
+        {{- '<|endoftext|><|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
     {%- else %}
-        {{- '<|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
+        {{- '<|endoftext|><|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
     {%- endif %}
 {%- endif %}
 {%- for message in messages %}
@@ -473,30 +474,43 @@ prompt = tokenizer.apply_chat_template([
 # print(prompt)
 
 # model.generation_config.do_sample = True
-# gen = inference(
-#     prompt, 
-#     low_memory=True,
-#     do_sample=False,
-#     # top_k=10,
-#     # do_sample=True, 
-#     # temperature=0.9, 
-#     # top_k=10, 
-#     # repetition_penalty=1.1,
-#     max_new_tokens=256,
-#     # stop_words=["</tool_call>"]
-# )
-# print("--"*10)
-# sys.exit()
+gen = inference(
+    prompt, 
+    low_memory=True,
+    do_sample=False,
+    # top_k=10,
+    # do_sample=True, 
+    # temperature=0.6, 
+    # top_k=10, 
+    # repetition_penalty=1.1,
+    max_new_tokens=328,
+    # stop_words=["</tool_call>"]
+)
+print("--"*10)
+#sys.exit()
 
 
 # %%
 msg = [
     # {"role": "user", "content": "Hi"}
-    {"role": "user", "content": "Write a python code to reverse a string"}
+    # {"role": "user", "content": "Write a python code to reverse a string"}
+    #{"role": "user", "content": "Write a python code to find prime number"}
     # {"role": "user", "content": "(a+b)^2=?"}
     # {"role": "user", "content": "What is hadith?"}
-    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
+    {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
+    # {"role": "user", "content": "What is 16 multiplied by 8?"},
+    # {"role": "user", "content": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}
+    # {"role": "user", "content": "Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?"}
+    # {"role": "user", "content": "In a truck, there are 26 pink hard hats, 15 green hard hats, and 24 yellow hard hats. If Carl takes away 4 pink hard hats, and John takes away 6 pink hard hats and twice as many green hard hats as the number of pink hard hats that he removed, then calculate the total number of hard hats that remained in the truck."}
 ]
+
+# Natalia sold 48/2 = <<48/2=24>>24 clips in May.
+# Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
+# #### 72
+
+# Weng earns 12/60 = $<<12/60=0.2>>0.2 per minute.
+# Working 50 minutes, she earned 0.2 x 50 = $<<0.2*50=10>>10.
+# #### 10
 
 prompt = tokenizer.apply_chat_template(
     msg,
@@ -514,7 +528,7 @@ gen = inference(
     do_sample=False, 
     # temperature=0.5, 
     #top_k=15, 
-    repetition_penalty=1.1,
+    # repetition_penalty=1.1,
     max_new_tokens=512,
     # stop_words=["</answer>"]
 )

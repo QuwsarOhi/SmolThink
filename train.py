@@ -40,7 +40,7 @@ from transformers.utils import get_json_schema
 
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 lora_r = None # 32
-SIZE = "360M"
+SIZE = "360M" #"135M"
 MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
 SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
 
@@ -48,12 +48,12 @@ SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
 # LORA_PATH = None
-dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
-# dataset = None
+# dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
+dataset = None
 
 # %%
 chat_template = """{%- if tools %}
-    {{- '<|im_start|>system\\n' }}
+    {{- '<|endoftext|><|im_start|>system\\n' }}
         {%- if messages[0]['role'] == 'system' %}
             {- messages[0]['content'] }}
         {%- else %}
@@ -67,9 +67,9 @@ chat_template = """{%- if tools %}
     {{- \"\\n</tools>\\n\\nYou first think/plan inside <think></think> tags.\\nThen for each function call, return a json object with function name and arguments within <tool_call></tool_call> tags.<|im_end|>\\n\" }}
 {%- else %}
     {%- if messages[0]['role'] == 'system' %}
-        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
+        {{- '<|endoftext|><|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
     {%- else %}
-        {{- '<|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
+        {{- '<|endoftext|><|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
     {%- endif %}
 {%- endif %}
 {%- for message in messages %}
@@ -172,6 +172,7 @@ tools = [
 # %%
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_PATH,
+    # "/Users/ohi/Documents/GitHub/PersonalAssistant/weights/checkpoint-22400",
     device_map="cpu",
     low_cpu_mem_usage=True,
     attn_implementation='eager', # 'sdpa'
@@ -400,7 +401,7 @@ if not dataset:
         return {"conversations": ret}
 
     fc_dataset = load_dataset("Jofthomas/hermes-function-calling-thinking-V1")['train']
-    # fc_dataset = fc_dataset.select(range(100))
+    fc_dataset = fc_dataset.select(range(len(fc_dataset)//2))
     fc_dataset = fc_dataset.map(hermes_fc_thinking)
     fc_dataset = fc_dataset.filter(lambda x: len(x['conversations']) > 0)
     print("Function calling dataset length (after filter):", len(fc_dataset))
@@ -581,6 +582,7 @@ CONTEXT_LEN = 832 # 1024
 print("Total dataset len:", DS_LEN)
 train_ds = DatasetGen_v1(
     dataset=dataset.select(range(0, DS_LEN-250)), 
+    # dataset=dataset.select(range(int((DS_LEN-250)//2), DS_LEN-250)), 
     tokenizer=tokenizer
 )
 test_ds = DatasetGen_v1(
@@ -613,17 +615,17 @@ data_collator = DataCollatorForLanguageModeling(
     # padding = 'max_length'
 )
 
-SAVE_STEPS = 100
+SAVE_STEPS = 400
 training_args = TrainingArguments(
     output_dir=SAVE_PATH,
     # SmolLM2 SFT learning rate: 3.0 * 10-4
-    learning_rate = 2e-4, #5e-6,
+    learning_rate = (3e-3)*(1/128), # prev lr: 2e-4 (for BS: 4),
     adam_beta1 = 0.9,
     adam_beta2 = 0.99,
-    weight_decay = 0.1,
-    warmup_ratio = 0.05,
+    weight_decay = 0.2,
+    warmup_ratio = 0.1,
     max_grad_norm=0.1,
-    logging_steps=5,
+    logging_steps=20,
     max_steps=len(train_ds),
     save_steps = SAVE_STEPS, #200 // (CONTEXT_LEN // 512),
     save_total_limit=5,
@@ -635,7 +637,7 @@ training_args = TrainingArguments(
     bf16_full_eval=True,
     per_device_train_batch_size = 1,
     per_device_eval_batch_size = 1,
-    gradient_accumulation_steps = 4, # Increase to 4 for smoother training
+    gradient_accumulation_steps = 1, #2, # Increase to 4 for smoother training
     torch_empty_cache_steps=SAVE_STEPS,
     num_train_epochs=1,
     logging_strategy='steps',
