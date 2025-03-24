@@ -59,7 +59,7 @@ def get_latest_checkpoint(base_directory):
     
     return os.path.join(base_directory, latest_checkpoint)
 
-SIZE = "360M" #"360M"
+SIZE = "360M" #"135M" #"360M"
 # MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
@@ -380,9 +380,10 @@ tools = [
                     "user_message": {
                         "type": "string",
                         "description": "Question/message that the user asked.",
+                        "required": True,
                     }
                 },
-                "required": ["user_message"],
+                # "required": ["user_message"],
             },
         },
     },
@@ -431,9 +432,10 @@ tools = [
                     "expression": {
                         "type": "string",
                         "description": "The mathematical expression to calculate",
+                        "required": True,
                     }
                 },
-                "required": ["expression"],
+                # "required": ["expression"],
             },
         },
     },
@@ -448,16 +450,18 @@ tools = [
                     "search_str": {
                         "type": "string",
                         "description": "The string that contains the query to be searched looked for",
+                        "required": True,
                     }
                 },
-                "required": ["expression"],
+                # "required": ["expression"],
             },
         },
     }
 ]
 
 prompt = tokenizer.apply_chat_template([
-    {"role": "user", "content": "Who is the current president of USA? Do an information search."},
+    {"role": "user", "content": "Who is the current president of USA?"},
+    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
     # {"role": "user", "content": "What is your name?"},
     # {"role": "user", "content": "How are you doing?"},
     # {"role": "user", "content": "Solve 9*2 + (33-9) / 2"},
@@ -465,7 +469,7 @@ prompt = tokenizer.apply_chat_template([
     # {"role": "assistant", "content": "<tool_call>[retrieve_payment_date(12)]</tool_call>"},
     # {"role": "tool", "content": "12/12/12"},
     # {"role": "assistant", "content": "12/12/12"}
-], tools=tools, tokenize=False, add_generation_prompt=True) #+ "<think>\nI have 'have_conversation', 'retrieve_payment_status', 'retrieve_payment_date', 'calculate', and 'information_search' as tool. Let's evaluate which one can be used:\n"
+], tools=tools, tokenize=False, add_generation_prompt=False) #+ "<think>\nI have 'have_conversation', 'retrieve_payment_status', 'retrieve_payment_date', 'calculate', and 'information_search' as tool. Let's evaluate which one can be used:\n"
 
 # Okay, so user asked "".
 
@@ -482,19 +486,24 @@ gen = inference(
     # do_sample=True, 
     # temperature=0.6, 
     # top_k=10, 
-    # repetition_penalty=1.1,
-    max_new_tokens=328,
+    repetition_penalty=1.1,
+    max_new_tokens=512,
     # stop_words=["</tool_call>"]
 )
 print("--"*10)
-#sys.exit()
+# sys.exit()
 
 
 # %%
+
+question = "Which of the following styles of fuzzer is more likely to explore paths covering every line of code in the following program?"
+options = [ "Generational", "Blackbox", "Whitebox", "Mutation-based" ]
+options = "\n".join(o+a for (o, a) in zip(["A) ", "B) ", "C) ", "D) "], options))
+
 msg = [
     # {"role": "user", "content": "Hi"}
     # {"role": "user", "content": "Write a python code to reverse a string"}
-    #{"role": "user", "content": "Write a python code to find prime number"}
+    # {"role": "user", "content": "Write a python code to find prime number"}
     # {"role": "user", "content": "(a+b)^2=?"}
     # {"role": "user", "content": "What is hadith?"}
     {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
@@ -502,6 +511,7 @@ msg = [
     # {"role": "user", "content": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}
     # {"role": "user", "content": "Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?"}
     # {"role": "user", "content": "In a truck, there are 26 pink hard hats, 15 green hard hats, and 24 yellow hard hats. If Carl takes away 4 pink hard hats, and John takes away 6 pink hard hats and twice as many green hard hats as the number of pink hard hats that he removed, then calculate the total number of hard hats that remained in the truck."}
+    # {"role": "user", "content": f"{question}\nPick the right answer from the following options:\n{options}\n"}
 ]
 
 # Natalia sold 48/2 = <<48/2=24>>24 clips in May.
@@ -528,7 +538,7 @@ gen = inference(
     do_sample=False, 
     # temperature=0.5, 
     #top_k=15, 
-    # repetition_penalty=1.1,
+    repetition_penalty=1.1,
     max_new_tokens=512,
     # stop_words=["</answer>"]
 )

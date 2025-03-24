@@ -41,7 +41,7 @@ from transformers.utils import get_json_schema
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 lora_r = None # 32
 SIZE = "360M" #"135M"
-MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
+MODEL_PATH ="/Users/ohi/Documents/GitHub/PersonalAssistant/checkpoint-42302" #f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
 SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
 
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
@@ -117,7 +117,7 @@ tokenizer = AutoTokenizer.from_pretrained(
     add_eos_token=True,
 )
 tokenizer.chat_template = chat_template
-tokenizer.pad_token = tokenizer.eos_token
+tokenizer.pad_token = tokenizer.unk_token
 streamer = TextStreamer(tokenizer, skip_prompt=True)
 
 print(tokenizer.apply_chat_template([
@@ -335,7 +335,7 @@ if not dataset:
 
     r1_dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", "v1")['train']
     r1_dataset.shuffle(123)
-    r1_dataset = r1_dataset.select(range(50_000)) # Prev: 90_000
+    r1_dataset = r1_dataset.select(range(50_000, 60_000)) # Prev: 90_000
     r1_dataset = r1_dataset.map(r1distillsft_conv)
     r1_dataset = r1_dataset.filter(lambda x: length_filter(x, 256))
     delete_keys = list(r1_dataset.column_names)
@@ -401,7 +401,7 @@ if not dataset:
         return {"conversations": ret}
 
     fc_dataset = load_dataset("Jofthomas/hermes-function-calling-thinking-V1")['train']
-    fc_dataset = fc_dataset.select(range(len(fc_dataset)//2))
+    fc_dataset = fc_dataset.select(range(len(fc_dataset)//2, (len(fc_dataset)//2)+1000))
     fc_dataset = fc_dataset.map(hermes_fc_thinking)
     fc_dataset = fc_dataset.filter(lambda x: len(x['conversations']) > 0)
     print("Function calling dataset length (after filter):", len(fc_dataset))
@@ -619,7 +619,7 @@ SAVE_STEPS = 400
 training_args = TrainingArguments(
     output_dir=SAVE_PATH,
     # SmolLM2 SFT learning rate: 3.0 * 10-4
-    learning_rate = (3e-3)*(1/128), # prev lr: 2e-4 (for BS: 4),
+    learning_rate = 5e-5, #(3e-3)*(1/128), # prev lr: 2e-4 (for BS: 4),
     adam_beta1 = 0.9,
     adam_beta2 = 0.99,
     weight_decay = 0.2,
@@ -628,7 +628,7 @@ training_args = TrainingArguments(
     logging_steps=20,
     max_steps=len(train_ds),
     save_steps = SAVE_STEPS, #200 // (CONTEXT_LEN // 512),
-    save_total_limit=5,
+    save_total_limit=3,
     lr_scheduler_type = "cosine",
     # Memory reduction
     optim = "adamw_torch",    # adamw_torch, adafactor
