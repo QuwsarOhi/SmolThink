@@ -41,7 +41,7 @@ from transformers.utils import get_json_schema
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 lora_r = None # 32
 SIZE = "360M" #"135M"
-MODEL_PATH ="/Users/ohi/Documents/GitHub/PersonalAssistant/checkpoint-42302" #f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
+MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
 SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
 
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
@@ -105,10 +105,6 @@ chat_template = """{%- if tools %}
 {%- endfor %}
 {%- if add_generation_prompt %}
     {{- '<|im_start|>assistant\\n<think>\\n' }}
-    {%- if tools %}
-        {{- 'I have access to ' }}{% for tool in tools %}'{{ tool.function.name }}'{% if not loop.last %}, {% endif %}{% endfor %}
-        {{- ' as tools. Let\\'s evaluate each of them to and then identify the best tool based on given context:' }}
-    {% endif %}
 {%- endif %}"""
 
 tokenizer = AutoTokenizer.from_pretrained(
@@ -335,7 +331,7 @@ if not dataset:
 
     r1_dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", "v1")['train']
     r1_dataset.shuffle(123)
-    r1_dataset = r1_dataset.select(range(50_000, 60_000)) # Prev: 90_000
+    r1_dataset = r1_dataset.select(range(50_000)) # Prev: 90_000
     r1_dataset = r1_dataset.map(r1distillsft_conv)
     r1_dataset = r1_dataset.filter(lambda x: length_filter(x, 256))
     delete_keys = list(r1_dataset.column_names)
@@ -390,6 +386,9 @@ if not dataset:
                             seq[-1]['tool_call'] = tool_call
                         except Exception as E:
                             return {"conversations": ""}
+                
+                if "<think>" not in seq[-1]['content']:
+                    seq[-1]['content'] = f"<think>\n</think>\n<answer>\n{seq[-1]['content']}\n</answer>"
             if seq[-1]['role'] == 'tool':
                 seq[-1]['content'] = seq[-1]['content'].replace("<tool_response>", "")
                 seq[-1]['content'] = seq[-1]['content'].replace("</tool_response>", "")
@@ -401,7 +400,7 @@ if not dataset:
         return {"conversations": ret}
 
     fc_dataset = load_dataset("Jofthomas/hermes-function-calling-thinking-V1")['train']
-    fc_dataset = fc_dataset.select(range(len(fc_dataset)//2, (len(fc_dataset)//2)+1000))
+    # fc_dataset = fc_dataset.select(range(len(fc_dataset)//2))
     fc_dataset = fc_dataset.map(hermes_fc_thinking)
     fc_dataset = fc_dataset.filter(lambda x: len(x['conversations']) > 0)
     print("Function calling dataset length (after filter):", len(fc_dataset))
@@ -459,73 +458,103 @@ if not dataset:
     genreason_dataset = genreason_dataset.remove_columns(delete_keys)
     print("General reason dataset length:", len(genreason_dataset))
 
+
 # %%
 if not dataset:
-    print("Openthought length:", len(openthought_dataset))
-    print("R1 length:", len(r1_dataset))
-    print("FC length:", len(fc_dataset))
-    print("Gen reason length:", len(genreason_dataset))
-    dataset = concatenate_datasets([openthought_dataset, r1_dataset, fc_dataset, genreason_dataset])
-    dataset.shuffle(999)
+    def process(data):
+        for idx, message in enumerate(data['messages']):
+            if message['role'] != 'assistant': continue
+            content = message['content']
+            tag = "</think>"
+            pos = content.find(tag)
+            answer = content[pos+len(tag):].strip()
+            data['messages'][idx]['content'] = content[:pos].strip() + f"\n</think>\n<answer>\n{answer}\n</answer>"
+        return data
+
+    # Login using e.g. `huggingface-cli login` to access this dataset
+    codeforces_cot = load_dataset("open-r1/codeforces-cots", "solutions_py_decontaminated")['train']#.select(range(500))
+    codeforces_cot = codeforces_cot.filter(lambda x: len(str(x['messages'])) < 8000)
+    delete_keys = list(codeforces_cot.column_names)
+    codeforces_cot = codeforces_cot.map(process)
+    codeforces_cot = codeforces_cot.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['messages'], tools=None, tokenize=False)})
+    codeforces_cot = codeforces_cot.remove_columns(delete_keys)
+    print("Codeforces CoT dataset length:", len(codeforces_cot))
+
+
+# %%
+if not dataset:
+    # print("Openthought length:", len(openthought_dataset))
+    # print("R1 length:", len(r1_dataset))
+    # print("FC length:", len(fc_dataset))
+    # print("Gen reason length:", len(genreason_dataset))
+    # print("CF CoT length:", len(codeforces_cot))
+    if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
+    with open(os.path.join(SAVE_PATH, 'dataset_example.log'), "w") as f:
+        for k, d in [("OpenThought", openthought_dataset), ("R1", r1_dataset), ("Function Calling", fc_dataset), ("General Reason", genreason_dataset), ("Codeforce CoT", codeforces_cot)]:
+            f.write(f"\n{k} length: {len(d)}\n")
+            f.write(f"{k}\n{'-'*20}\n{d[0]['conversations']}\n{'='*20}\n\n")
+
+    dataset = concatenate_datasets([openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot])
+    dataset = dataset.shuffle(12)
     dataset.save_to_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
     del r1_dataset, fc_dataset # openthought_dataset
 
 # %%
 from tqdm import tqdm
 
-class DatasetGen_v0(torch.utils.data.Dataset):
-    def __init__(self, dataset, tokenizer):
-        self.ds = dataset
-        self.tokenizer = tokenizer
-        self.prev_cache = None
-        self.prev_cache_idx = 0
-        # self.split = split
+# class DatasetGen_v0(torch.utils.data.Dataset):
+#     def __init__(self, dataset, tokenizer):
+#         self.ds = dataset
+#         self.tokenizer = tokenizer
+#         self.prev_cache = None
+#         self.prev_cache_idx = 0
+#         # self.split = split
     
-    def __len__(self):
-        return len(self.ds)
+#     def __len__(self):
+#         return len(self.ds)
 
-    def gen_label(self, input_ids):
-        # Right shift tokens
-        label = [input_id[1:] + [tokenizer.pad_token_id] for input_id in [input_ids]][0]
-        return label
+#     def gen_label(self, input_ids):
+#         # Right shift tokens
+#         label = [input_id[1:] + [tokenizer.pad_token_id] for input_id in [input_ids]][0]
+#         return label
 
-    def gen_data(self):
-        data = self.ds[random.choice(range(len(self.ds)))]
-        data = self.tokenizer(
-            data['conversations'].rstrip(),
-            max_length=CONTEXT_LEN,
-            truncation=True,
-            return_overflowing_tokens=True, # Return the overflowing tokens
-            stride=CONTEXT_LEN // 8,
-            # We can remove this when batch_size = 1
-            padding='max_length'
-            # padding='do_not_pad'
-        )
-        return data
+#     def gen_data(self):
+#         data = self.ds[random.choice(range(len(self.ds)))]
+#         data = self.tokenizer(
+#             data['conversations'].rstrip(),
+#             max_length=CONTEXT_LEN,
+#             truncation=True,
+#             return_overflowing_tokens=True, # Return the overflowing tokens
+#             stride=CONTEXT_LEN // 8,
+#             # We can remove this when batch_size = 1
+#             padding='max_length'
+#             # padding='do_not_pad'
+#         )
+#         return data
     
-    def __getitem__(self, idx):
-        if self.prev_cache is None or self.prev_cache_idx >= len(self.prev_cache['input_ids']):
-            self.prev_cache = self.gen_data()
-            self.prev_cache_idx = 0
+#     def __getitem__(self, idx):
+#         if self.prev_cache is None or self.prev_cache_idx >= len(self.prev_cache['input_ids']):
+#             self.prev_cache = self.gen_data()
+#             self.prev_cache_idx = 0
 
-        input_ids = self.prev_cache['input_ids'][self.prev_cache_idx]
-        attention_mask = self.prev_cache['attention_mask'][self.prev_cache_idx]
-        self.prev_cache_idx += 1
+#         input_ids = self.prev_cache['input_ids'][self.prev_cache_idx]
+#         attention_mask = self.prev_cache['attention_mask'][self.prev_cache_idx]
+#         self.prev_cache_idx += 1
 
-        return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'labels': self.gen_label(input_ids)
-        }
+#         return {
+#             'input_ids': input_ids,
+#             'attention_mask': attention_mask,
+#             'labels': self.gen_label(input_ids)
+#         }
 
-    def detokenize(self, data):
-        if isinstance(data, int):
-            data = self.__getitem__(data)
+#     def detokenize(self, data):
+#         if isinstance(data, int):
+#             data = self.__getitem__(data)
 
-        return {
-            'input': self.tokenizer.decode(data['input_ids']),
-            'output': self.tokenizer.decode(data['labels'])
-        }
+#         return {
+#             'input': self.tokenizer.decode(data['input_ids']),
+#             'output': self.tokenizer.decode(data['labels'])
+#         }
 
 class DatasetGen_v1(torch.utils.data.Dataset):
     def __init__(self, dataset, tokenizer):

@@ -11,7 +11,7 @@
 import os, sys
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
-from datasets import load_dataset
+from datasets import load_dataset, Dataset, concatenate_datasets
 import peft
 
 # from safetensors.torch import load_model, save_model
@@ -169,6 +169,31 @@ streamer = TextStreamer(tokenizer, skip_prompt=False)
 tokenizer.pad_token = tokenizer.eos_token
 
 # %%
+from random import Random
+
+random = Random(12)
+
+def generate_data():
+    ops = ["*", "/", "+", "-"]
+    op = random.choice(ops)
+
+    a = random.randint(1, 100)
+    b = random.randint(1, 100)
+    while op == '/' and a%b != 0:
+        b = random.randint(1, 1000)
+        if a % b != 0: continue
+
+    prompt = [{"role": "user", "content": f"Do the following calculation:\n{a} {op} {b} = ?"}]
+    ans = eval(f"{a} {op} {b}")
+    return {
+        'prompt': tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=False),
+        'ans': str(ans)
+    }
+
+math_dataset = [generate_data() for _ in range(1500)]
+math_dataset = Dataset.from_list(math_dataset)
+
+# %%
 from copy import deepcopy
 
 def tool_call_process(data):
@@ -220,18 +245,26 @@ def tool_call_process(data):
     new_data['valid'] = True
     tool_def = [{"type": "function", "function": e} for e in tool_def]
     new_data['prompt'] = tokenizer.apply_chat_template(seq, tools=tool_def, tokenize=False, add_generation_prompt=False)
+    new_data['ans'] = ''
     # print(json.dumps(new_data, indent=2), flush=True)
     return new_data
 
 dataset = load_dataset("BitAgent/tool_calling_shuffle")['train']
 col_names = dataset.column_names
-# dataset = dataset.select(range(3))
+dataset = dataset.select(range(1500))
 dataset = dataset.map(tool_call_process)
 dataset = dataset.remove_columns(col_names)
 dataset = dataset.filter(lambda x: x['valid'])
 
 print(dataset)
 # print("---", flush=True)
+
+# %%
+dataset = concatenate_datasets([dataset, math_dataset])
+dataset = dataset.shuffle(999)
+
+# for i in range(5):
+#     print(dataset[i])
 
 # %%
 question = "Do the math: '(9 * 2 + 33) / 2'"
@@ -293,24 +326,24 @@ def validate_format(text):
     return bool(pattern.match(text))
 
 
-def correctness_reward_func(prompts, completions, tool_call, **kwargs) -> list[float]:
-    # for i in range(1):
-    #     print("-----Question-----", flush=True)
-    #     print(prompts[i], flush=True)
-    #     print("-----Generation-----", flush=True)
-    #     print(completions[i], flush=True)
+# def correctness_reward_func(prompts, completions, tool_call, **kwargs) -> list[float]:
+#     # for i in range(1):
+#     #     print("-----Question-----", flush=True)
+#     #     print(prompts[i], flush=True)
+#     #     print("-----Generation-----", flush=True)
+#     #     print(completions[i], flush=True)
 
-    score = []
-    for gen in completions:
-        tag = "</tool_call>\n"
-        gen = gen[:gen.find(tag)+len(tag)]
-        if validate_format(gen):
-            score.append(0.5)
-        else:
-            score.append(0.0)
+#     score = []
+#     for gen in completions:
+#         tag = "</tool_call>\n"
+#         gen = gen[:gen.find(tag)+len(tag)]
+#         if validate_format(gen):
+#             score.append(0.5)
+#         else:
+#             score.append(0.0)
         
-    print("Correctness Score:", score, flush=True)
-    return score
+#     print("Correctness Score:", score, flush=True)
+#     return score
 
 
 from ast import literal_eval
@@ -326,13 +359,14 @@ def tool_parse(tool_call:str):
     return ret
 
 
-def tool_call_score(prompts, completions, tool_call, **kwargs):
+def tool_call_score(prompts, completions, tool_call, answers=[], **kwargs):
     # Compile regex to capture content inside <tool_call> tags, allowing for whitespace/newlines.
     pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
     matches = [pattern.findall(text) for text in completions]
     calls = []
-    score = []
+    score = [0 for _ in range(len(prompts))]
     for i, match in enumerate(matches):
+        if not(len(answers) > i and answers[i]): continue
         try: 
             gen_tool_calls = match[0].strip() #.replace("'", '"')
             ground_tool_calls = tool_call[i].strip() #.replace("'", '"')
@@ -341,9 +375,9 @@ def tool_call_score(prompts, completions, tool_call, **kwargs):
             ground_tool_calls = tool_parse(ground_tool_calls)
 
             if gen_tool_calls and gen_tool_calls == ground_tool_calls:
-                score.append(1.0 + len(gen_tool_calls['arguments'])*0.25)
+                score[i] = 1.0 + len(gen_tool_calls['arguments'])*0.25
             elif gen_tool_calls == ground_tool_calls:
-                score.append(1.0)
+                score[i] = 1.0
             elif gen_tool_calls['name'] == ground_tool_calls['name']:
                 s = 0.5
                 for k, v in gen_tool_calls['arguments'].items():
@@ -351,19 +385,35 @@ def tool_call_score(prompts, completions, tool_call, **kwargs):
                         s += 0.25
                     elif ground_tool_calls['arguments'].get(k, None) != None:
                         s += 0.1
-                score.append(s)
+                score[i] = s
             else:
-                score.append(0.25)
+                score[i] = 0.25
         except Exception as E:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(E, "|", "line:", exc_tb.tb_lineno)
-            score.append(0.0)
+            score[i] = 0.0
 
     print("Tool-call Score:", score)
     return score
 
+def math_eval(prompts, completions, tool_call, answers=[], **kwargs):
+    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+    score = [0 for _ in range(len(prompts))]
+    for i, ans in enumerate(answers):
+        if len(ans) > i and answers[i]:
+            try:
+                # Getting last three lines
+                gen_ans = '\n'.join(pattern.findall(completions[i]).split('\n')[-3:])
+                gen_ans = gen_ans.split()
+                if ans in gen_ans:
+                    score[i] = 2.0
+            except:
+                pass
+    print("Math Score:", score)
+    return score
+
 # print(soft_format_reward_func([[{"content": response}]]))
-print(tool_call_score([question], [response], [tool_call]))
+print(tool_call_score([question], [response], [tool_call], []))
 
 # # Example usage:
 # text_valid = """<think>
@@ -413,7 +463,7 @@ training_args = GRPOConfig(
     # adam_beta1 = 0.9,
     # adam_beta2 = 0.99,
     weight_decay = 0.2,
-    warmup_ratio = 0.1,
+    warmup_ratio = 30 * (100/len(dataset)), #0.1,
     logging_steps=5,
     max_steps=len(dataset),
     save_steps = 10,
@@ -431,7 +481,7 @@ training_args = GRPOConfig(
     torch_empty_cache_steps=1,
     num_generations = 2, # Decrease if out of memory
     max_prompt_length = 512,
-    max_completion_length = 512,
+    max_completion_length = 400,
     temperature=0.9,
     # top_k=15,   # default is 50
     # repetition_penalty = 1.1, # default is 1
@@ -458,8 +508,9 @@ trainer = GRPOTrainer(
     model=model,
     # processing_class = tokenizer,
     reward_funcs = [
-        correctness_reward_func,
-        tool_call_score
+        # correctness_reward_func,
+        tool_call_score,
+        math_eval
         # xmlcount_reward_func,
         # soft_format_reward_func,
         # strict_format_reward_func,
@@ -473,7 +524,11 @@ trainer = GRPOTrainer(
     # peft_config=peft_config, #get_peft_config(model_config),
 )
 
-trainer.train()
+try:
+    trainer.train(resume_from_checkpoint=True)
+except ValueError as E:
+    print("No checkpoint found")
+    trainer.train(resume_from_checkpoint=False)
 
 # %%
 

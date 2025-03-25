@@ -178,7 +178,7 @@ chat_template = """{%- if tools %}
     {%- endif %}
 {%- endfor %}
 {%- if add_generation_prompt %}
-    {{- '<|im_start|>assistant\\n' }}
+    {{- '<|im_start|>assistant\\n<think>\\n' }}
 {%- endif %}"""
 
 # special_tokens_dict = {
@@ -457,8 +457,8 @@ tools = [
 ]
 
 prompt = tokenizer.apply_chat_template([
-    # {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
-    {"role": "user", "content": "Who is the current president of USA?"},
+    {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
+    # {"role": "user", "content": "Who is the current president of USA?"},
     # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
     # {"role": "user", "content": "What is your name?"},
     # {"role": "user", "content": "How are you doing?"},
@@ -467,7 +467,7 @@ prompt = tokenizer.apply_chat_template([
     # {"role": "assistant", "content": "<tool_call>[retrieve_payment_date(12)]</tool_call>"},
     # {"role": "tool", "content": "12/12/12"},
     # {"role": "assistant", "content": "12/12/12"}
-], tools=tools, tokenize=False, add_generation_prompt=True) #+ "<think>\nI have 'have_conversation', 'retrieve_payment_status', 'retrieve_payment_date', 'calculate', and 'information_search' as tool. Let's evaluate which one can be used:\n"
+], tools=tools, tokenize=False, add_generation_prompt=True) + "Let's do an information_search to find relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
 
 # Okay, so user asked "".
 
@@ -486,9 +486,46 @@ gen = inference(
     # top_k=10, 
     repetition_penalty=1.1,
     max_new_tokens=512,
-    # stop_words=["</tool_call>"]
+    stop_words=["</tool_call>"]
 )
 print("--"*10)
+
+from smolagents import DuckDuckGoSearchTool
+
+search_tool = DuckDuckGoSearchTool()
+result = search_tool(gen)
+
+prompt = tokenizer.apply_chat_template([
+    {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
+    # {"role": "user", "content": "Who is the current president of USA?"},
+    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
+    # {"role": "user", "content": "What is your name?"},
+    # {"role": "user", "content": "How are you doing?"},
+    # {"role": "user", "content": "Solve 9*2 + (33-9) / 2"},
+    # {"role": "user", "content": "What is the payment date for this transaction: '2452d'?"},
+    # {"role": "assistant", "content": "<tool_call>[retrieve_payment_date(12)]</tool_call>"},
+    # {"role": "tool", "content": "12/12/12"},
+    # {"role": "assistant", "content": "12/12/12"}
+], tools=None, tokenize=False, add_generation_prompt=True) + "Let's do an information_search to find relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
+
+prompt = prompt + gen + "\n<tool_response>\n" + result + "\n</tool_response>" + "<|im_end|>\n<|im_start|>assistant\n"
+
+# print(prompt)
+
+gen = inference(
+    prompt, 
+    low_memory=True,
+    do_sample=False,
+    # top_k=10,
+    # do_sample=True, 
+    # temperature=0.6, 
+    # top_k=10, 
+    repetition_penalty=1.1,
+    max_new_tokens=1024,
+    # stop_words=["</tool_call>"]
+)
+
+
 sys.exit()
 
 
