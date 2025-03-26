@@ -25,6 +25,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, StoppingCriteria
 from datasets import load_dataset
 import peft
+from duckduckgo_search import DDGS
 
 import random
 import re
@@ -351,91 +352,10 @@ def inference(input_text, max_new_tokens=100, stop_words=[], **kwargs):
     print("Total number of tokens:", len(outputs[0][input_token_len:]))
     return tokenizer.decode(outputs[0][input_token_len:], skip_special_tokens=False)
 
-# prompt = prompt_template(
-#     {'conversations': dataset[1200]['conversations'][:2]},
-#     add_generation_prompt=True, lead=None)
-
-# prompt = tokenizer.apply_chat_template(
-#     dataset[1000]['conversations'][:2],
-#     add_generation_prompt=True, 
-#     tokenize=False
-# )
-
-# print(prompt)
-# print("---")
 
 # %%
+
 tools = [
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "have_conversation",
-    #         "description": "A function that should be used if user gave a message that is casual conversation",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "user_message": {
-    #                     "type": "string",
-    #                     "description": "Question/message that the user asked.",
-    #                     "required": True,
-    #                 }
-    #             },
-    #             # "required": ["user_message"],
-    #         },
-    #     },
-    # },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "retrieve_payment_status",
-    #         "description": "Get payment status of a transaction",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "transaction_id": {
-    #                     "type": "string",
-    #                     "description": "The transaction id.",
-    #                 }
-    #             },
-    #             "required": ["transaction_id"],
-    #         },
-    #     },
-    # },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "retrieve_payment_date",
-    #         "description": "Get payment date of a transaction",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "transaction_id": {
-    #                     "type": "string",
-    #                     "description": "The transaction id.",
-    #                 }
-    #             },
-    #             "required": ["transaction_id"],
-    #         },
-    #     },
-    # },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "calculate_math",
-    #         "description": "Calculate a mathematical expression. Can perform addition, substraction, multiplication.",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "expression": {
-    #                     "type": "string",
-    #                     "description": "The mathematical expression to calculate",
-    #                     "required": True,
-    #                 }
-    #             },
-    #             # "required": ["expression"],
-    #         },
-    #     },
-    # },
     {
         "type": "function",
         "function": {
@@ -446,137 +366,128 @@ tools = [
                 "properties": {
                     "search_str": {
                         "type": "string",
-                        "description": "The string that contains the query to be searched looked for",
+                        "description": "The complete string that contains the question to be searched for.",
                         "required": True,
                     }
                 },
-                # "required": ["expression"],
             },
         },
     }
 ]
 
-prompt = tokenizer.apply_chat_template([
-    {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
-    # {"role": "user", "content": "Who is the current president of USA?"},
-    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
-    # {"role": "user", "content": "What is your name?"},
-    # {"role": "user", "content": "How are you doing?"},
-    # {"role": "user", "content": "Solve 9*2 + (33-9) / 2"},
-    # {"role": "user", "content": "What is the payment date for this transaction: '2452d'?"},
-    # {"role": "assistant", "content": "<tool_call>[retrieve_payment_date(12)]</tool_call>"},
-    # {"role": "tool", "content": "12/12/12"},
-    # {"role": "assistant", "content": "12/12/12"}
-], tools=tools, tokenize=False, add_generation_prompt=True) + "Let's do an information_search to find relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
+summary_template = '''Help with my research.
 
-# Okay, so user asked "".
+Respond using:
+- Provided search results with referencing links + your knowledge + extra relevant insights (note: referencing links should be in the format [1](URL) and placed immediately after the fact you are quoting)
+- Same language as query
+- Markdown format (allowed components: anchor, bold, italic, code, quote, table)
 
-# #+ "<think>\n"
+{search_results}'''
 
-# print(prompt)
+def url_content(url):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.content, 'html.parser')
 
-# model.generation_config.do_sample = True
-gen = inference(
-    prompt, 
-    low_memory=True,
-    do_sample=False,
-    # top_k=10,
-    # do_sample=True, 
-    # temperature=0.6, 
-    # top_k=10, 
-    repetition_penalty=1.1,
-    max_new_tokens=512,
-    stop_words=["</tool_call>"]
-)
-print("--"*10)
+    # Remove scripts, styles, navs, headers, footers, and typical ad elements
+    for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript', 'iframe']):
+        tag.decompose()
 
-from smolagents import DuckDuckGoSearchTool
+    ad_classes = ['advertisement', 'ad', 'adsbygoogle', 'promo', 'banner', 'cookie-banner', 'subscribe']
+    for class_name in ad_classes:
+        for tag in soup.select(f'.{class_name}, #{class_name}'):
+            tag.decompose()
 
-search_tool = DuckDuckGoSearchTool()
-result = search_tool(gen)
+    # Remove all links and their content
+    for a_tag in soup.find_all('a'):
+        a_tag.decompose()
 
-prompt = tokenizer.apply_chat_template([
-    {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
-    # {"role": "user", "content": "Who is the current president of USA?"},
-    # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
-    # {"role": "user", "content": "What is your name?"},
-    # {"role": "user", "content": "How are you doing?"},
-    # {"role": "user", "content": "Solve 9*2 + (33-9) / 2"},
-    # {"role": "user", "content": "What is the payment date for this transaction: '2452d'?"},
-    # {"role": "assistant", "content": "<tool_call>[retrieve_payment_date(12)]</tool_call>"},
-    # {"role": "tool", "content": "12/12/12"},
-    # {"role": "assistant", "content": "12/12/12"}
-], tools=None, tokenize=False, add_generation_prompt=True) + "Let's do an information_search to find relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
+    # Markdown content building
+    markdown_lines = []
 
-prompt = prompt + gen + "\n<tool_response>\n" + result + "\n</tool_response>" + "<|im_end|>\n<|im_start|>assistant\n"
+    # Process headings and paragraphs
+    for element in soup.body.descendants if soup.body else soup.descendants:
+        if element.name:
+            if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                level = int(element.name[1])
+                markdown_lines.append(f"{'#' * level} {element.get_text(strip=True)}\n")
+            elif element.name in ['ul', 'ol']:
+                for li in element.find_all('li'):
+                    markdown_lines.append(f"- {li.get_text(strip=True)}")
+            elif element.name == 'p':
+                text = element.get_text(strip=True)
+                if text:
+                    markdown_lines.append(f"{text}\n")
 
-# print(prompt)
-
-gen = inference(
-    prompt, 
-    low_memory=True,
-    do_sample=False,
-    # top_k=10,
-    # do_sample=True, 
-    # temperature=0.6, 
-    # top_k=10, 
-    repetition_penalty=1.1,
-    max_new_tokens=1024,
-    # stop_words=["</tool_call>"]
-)
+    # Final cleanup: remove empty lines
+    markdown_lines = list(filter(lambda x: len(x) > 2, markdown_lines))
+    markdown_content = '\n'.join([line for line in markdown_lines if line.strip()])    
+    return markdown_content
 
 
-sys.exit()
+def search_tool(search_str, full_content=True):
+    rets = None
+    with DDGS() as ddg:
+        rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=2))
+
+    str_rets = ''
+    if full_content:
+        str_rets = "Use following information to answer user_question:\n\n"
+        for i, r in enumerate(rets):
+            r = url_content(rets[i]['href'])[:1024*2]
+            str_rets += f"# Source {i+1}:\n" + "-"*10 + f"\n\n{r}\n\n\n"
+    else:
+        str_rets = "Use following information to answer user_question:\n\n"
+        for i, r in enumerate(rets):
+            str_rets += f"# Source {i+1}:\n" + "-"*10 + f"\n\n{r}\n\n\n"
+        
+    return str_rets
 
 
-# %%
+from bs4 import BeautifulSoup
+import requests
 
-question = "Which of the following styles of fuzzer is more likely to explore paths covering every line of code in the following program?"
-options = [ "Generational", "Blackbox", "Whitebox", "Mutation-based" ]
-options = "\n".join(o+a for (o, a) in zip(["A) ", "B) ", "C) ", "D) "], options))
 
-msg = [
-    {"role": "user", "content": "write a command to create a git repository and do a readme.md push"}
-    # {"role": "user", "content": "Hi"}
-    # {"role": "user", "content": "Write a python code to reverse a string"}
-    # {"role": "user", "content": "Write a python code to find prime number"}
-    # {"role": "user", "content": "(a+b)^2=?"}
-    # {"role": "user", "content": "What is hadith?"}
-   # {"role": "user", "content": "Fix grammar in the sentence: 'The children is playing'"}
-    # {"role": "user", "content": "What is 16 multiplied by 8?"},
-    # {"role": "user", "content": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}
-    # {"role": "user", "content": "Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?"}
-    # {"role": "user", "content": "In a truck, there are 26 pink hard hats, 15 green hard hats, and 24 yellow hard hats. If Carl takes away 4 pink hard hats, and John takes away 6 pink hard hats and twice as many green hard hats as the number of pink hard hats that he removed, then calculate the total number of hard hats that remained in the truck."}
-    # {"role": "user", "content": f"{question}\nPick the right answer from the following options:\n{options}\n"}
-]
+while True:
+    user_message = input("Your input: ")
+    base_prompt = tokenizer.apply_chat_template([
+        {"role": "user", "content": user_message}
+    ], tools=tools, tokenize=False, add_generation_prompt=True) #+ "Let's do an information_search to search relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
 
-# Natalia sold 48/2 = <<48/2=24>>24 clips in May.
-# Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
-# #### 72
+    gen = inference(
+        base_prompt, 
+        low_memory=True,
+        # do_sample=False,
+        temperature=0.4,
+        # repetition_penalty=1.1,
+        max_new_tokens=512,
+        stop_words=["</tool_call>"]
+    )
 
-# Weng earns 12/60 = $<<12/60=0.2>>0.2 per minute.
-# Working 50 minutes, she earned 0.2 x 50 = $<<0.2*50=10>>10.
-# #### 10
+    break
 
-prompt = tokenizer.apply_chat_template(
-    msg,
-    tools=None,
-    add_generation_prompt=True, 
-    tokenize=False,
-) #+ "<think>\n" #+ "</think>\n"
+    # what is ci/cd?
+    result = search_tool(gen)#[:1024*2] + "..."
+    base_prompt = tokenizer.apply_chat_template([
+        {"role": "user", "content": user_message},
+        # {"role": "tool", "content": result}
+        # {"role": "user", "content": user_message}
+        # {"role": "assistant", "content": "<think>\nLet's do an information_search to find relevant information before answering user question\n</think>"},
+        {"role": "assistant", "tool_calls": [{'name': 'information_search', 'arguments': {'search_str': f'{gen}"'}}]},
+        {"role": "tool", "content": result}
+    ], tools=None, tokenize=False, add_generation_prompt=True) #+ "</think>\n<answer>\n"
 
-# print(prompt)
-#model.generation_config.do_sample = True
+    gen = inference(
+        base_prompt, 
+        low_memory=True,
+        # do_sample=False,
+        temperature=0.4,
+        repetition_penalty=1.1,
+        max_new_tokens=1024,
+    )
 
-gen = inference(
-    prompt, 
-    low_memory=True,
-    do_sample=False, 
-    # temperature=0.5, 
-    #top_k=15, 
-    repetition_penalty=1.1,
-    max_new_tokens=512,
-    # stop_words=["</answer>"]
-)
-print("--"*10)
-# print(gen)
+    print("-"*50, end='\n\n')
+
+
+    # sys.exit()
