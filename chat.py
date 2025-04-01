@@ -38,6 +38,9 @@ from typing import Optional, List
 from jinja2 import Template
 from transformers.utils import get_json_schema
 
+from bs4 import BeautifulSoup
+import requests
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -67,6 +70,7 @@ SIZE = "360M" #"135M" #"360M"
 
 FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft")
 # FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolLM2-{SIZE}-grpo")
+
 TOKENIZER_PATH = FILE_PATH
 LORA_PATH = os.path.join(FILE_PATH, "smolthink")
 print("LoRA checkpoint:", LORA_PATH)
@@ -359,14 +363,14 @@ tools = [
     {
         "type": "function",
         "function": {
-            "name": "information_search",
-            "description": "Can search for infomation which are doubtful/unknown/recent. Can be used to accurately answer user queries. Use this tool to first search information you need to know.",
+            "name": "web_search",
+            "description": "Can search the web for infomation which are doubtful/unknown/recent.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "search_str": {
                         "type": "string",
-                        "description": "The complete string that contains the question to be searched for.",
+                        "description": "The whole question you want to ask. Has to be complete and informative WH-question.",
                         "required": True,
                     }
                 },
@@ -426,16 +430,16 @@ def url_content(url):
     return markdown_content
 
 
-def search_tool(search_str, full_content=True):
+def search_tool(search_str, full_content=True, max_results=1):
     rets = None
     with DDGS() as ddg:
-        rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=2))
+        rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=max_results))
 
     str_rets = ''
     if full_content:
         str_rets = "Use following information to answer user_question:\n\n"
         for i, r in enumerate(rets):
-            r = url_content(rets[i]['href'])[:1024*2]
+            r = url_content(rets[i]['href'])[:1024*3]
             str_rets += f"# Source {i+1}:\n" + "-"*10 + f"\n\n{r}\n\n\n"
     else:
         str_rets = "Use following information to answer user_question:\n\n"
@@ -445,8 +449,35 @@ def search_tool(search_str, full_content=True):
     return str_rets
 
 
-from bs4 import BeautifulSoup
-import requests
+from ast import literal_eval
+def tool_parse(tool_call:str):
+    ret = None
+    try:
+        ret = literal_eval(tool_call)
+    except Exception:
+        pass
+
+    _tool_call = tool_call.replace("'", '"')
+    ret = json.loads(_tool_call)
+    return ret
+
+
+def tool_call_extract(inp_str:str):
+    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+    tool_calls = pattern.findall(inp_str)
+    if tool_calls:
+        tool_call = tool_parse(tool_calls[0])
+        return tool_call
+    return None
+
+def remove_think(inp_str:str):
+    inp_str = deepcopy(inp_str)
+    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+    thinks = pattern.findall(inp_str)
+    for think in thinks:
+        inp_str = inp_str.replace(think, '')
+    return inp_str
+
 
 
 while True:
@@ -458,31 +489,36 @@ while True:
     gen = inference(
         base_prompt, 
         low_memory=True,
-        # do_sample=False,
-        temperature=0.4,
-        # repetition_penalty=1.1,
-        max_new_tokens=512,
+        do_sample=False,
+        # temperature=0.4,
+        repetition_penalty=1.1,
+        max_new_tokens=512*2,
         stop_words=["</tool_call>"]
     )
 
-    break
-
+    tool_call = tool_call_extract(gen)
+    # print(tool_call)
+    # break
     # what is ci/cd?
-    result = search_tool(gen)#[:1024*2] + "..."
+    try:
+        result = search_tool(tool_call['arguments']['search_str'])#[:1024*2] + "..."
+    except Exception as E:
+        print("Cannot process tool_call. Falling back", flush=True)
+        continue
+    
+    print("-------")
     base_prompt = tokenizer.apply_chat_template([
         {"role": "user", "content": user_message},
-        # {"role": "tool", "content": result}
-        # {"role": "user", "content": user_message}
-        # {"role": "assistant", "content": "<think>\nLet's do an information_search to find relevant information before answering user question\n</think>"},
-        {"role": "assistant", "tool_calls": [{'name': 'information_search', 'arguments': {'search_str': f'{gen}"'}}]},
+        # {"role": "assistant", "content": gen},
+        # {"role": "assistant", "tool_calls": [tool_call]},
         {"role": "tool", "content": result}
     ], tools=None, tokenize=False, add_generation_prompt=True) #+ "</think>\n<answer>\n"
 
     gen = inference(
         base_prompt, 
         low_memory=True,
-        # do_sample=False,
-        temperature=0.4,
+        do_sample=False,
+        # temperature=0.4,
         repetition_penalty=1.1,
         max_new_tokens=1024,
     )
