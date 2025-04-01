@@ -88,8 +88,8 @@ Here is the scale you should use to build your answer:
 
 Use the following rubrics to award the points:
 - Award 1 point if the answer is related to the question.
-- Give 1 additional point if the answer is clear and precise.
-- Provide 1 further point if the answer is true.
+- Give 1 additional point if the answer is clear, precise, and not repetitive.
+- Provide 1 further point if the answer is true and follows proper markdown format.
 - One final point should be awarded if the answer provides additional resources to support the user.
 
 
@@ -148,12 +148,11 @@ def write_jsonl(data: dict):
 
 def extract_rating(input_str:str):
     data = input_str.split('<rating>')[1]
-    data = data.strip()
-
-    try:
-        return float(data)
-    except:
-        return None
+    data = data.strip().split()
+    for d in data:
+        try:    return float(d)
+        except: continue
+    return None
 
 # %%
 deepseek_r1 = '''You are a helpful AI. You will be given a question and a context. You have to first think (in 150 words) and then come up with the final answer based on the question and user-provided context
@@ -186,8 +185,11 @@ def r1_response(question, context):
         if not think_finished:
             n_think_tokens += 1
 
-        if n_think_tokens > 256:
+        if n_think_tokens > 386:
             print("Generation limit exceeded", flush=True)
+            return None, None
+        
+        if len(model_res) > 6000:
             return None, None
 
     think = re.findall(r"<think>(.*?)</think>", model_res, re.DOTALL)[0].strip()
@@ -281,14 +283,11 @@ def search_tool(search_str, max_results=1):
         rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=7))
 
     str_rets = ''
-    web_contents = []
-    web_summary = []
-    web_url = []
-    n_results, i = 0, -1
-    while n_results < max_results and i+1 < len(rets):
+    web_source = []
+    i = -1
+    while len(web_source) < max_results and i+1 < len(rets):
         i += 1
-        # try:
-        if True:
+        try:
             print("Parsing url:", rets[i]['href'], flush=True)
             web_content = url_content(rets[i]['href'])[:1024*4] + " ..."
             web_content = web_content.strip()
@@ -296,20 +295,29 @@ def search_tool(search_str, max_results=1):
                 continue
 
             # web_content = web_content_summarize(web_content=web_content)
-            content = f"\n# Source {n_results+1}:"
+            content = f"\n# Source {len(web_source)+1}:"
             content += "\n" + "-" * len(content) + f"\n\n{web_content}\n\n"
             str_rets += content
-            n_results += 1
-        # except Exception as E:
-        #     # print(E)
-        #     continue
+            web_source.append(rets[i]['href'])
+        except Exception as E:
+            continue
         
-    return str_rets
+    return str_rets, web_source
 
-print(search_tool('current methods used by scientists to improve predictions of climate change and its environmental impact', max_results=1))
+# print(search_tool('current methods used by scientists to improve predictions of climate change and its environmental impact', max_results=1))
 
 # %%
-topics = ["python math question", "git", "problem solving", "python debugging", "current knowledge", "terminal commands", "computer science"]
+topics = [
+    "python math question", 
+    "git",
+    "coding problem solving", 
+    "python debugging", 
+    "current knowledge", 
+    "terminal commands", 
+    "math questions",
+    "leetcode coding problems", 
+    "computer science"
+]
 
 for _ in range(500):
     topic = random.choice(topics)
@@ -343,8 +351,8 @@ for _ in range(500):
         print("Ignoring question and search string as search_str length is greater than limit", flush=True)
         continue
 
-    max_results = random.choice(range(3))
-    context = search_tool(search_str, max_results=max_results)
+    max_results = random.choice(range(1, 3))
+    context, source_urls = search_tool(search_str, max_results=max_results)
     if context.strip() == '': 
         print("Empty context found", flush=True)
         continue
@@ -375,7 +383,7 @@ for _ in range(500):
             "question": question,
             "search_str": search_str,
             "search_results": context,
-            "n_search_results": max_results,
+            "source_urls": source_urls,
             "think": think,
             "answer": answer,
             "judge_response": judge_response,
