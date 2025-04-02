@@ -467,7 +467,7 @@ topics = [
 while True:
     topic = random.choice(topics)
     # topic = "greeting"
-    print(f"## Topic: {topic}", flush=True)
+    print(f"\n\n# Topic: {topic}", flush=True)
     stream = ollama_infr(question_gen_template.format(topic_name=topic), extra_stops=["</question>"], temperature=0.9)
     question = ''
     for part in stream:
