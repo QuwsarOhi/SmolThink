@@ -356,13 +356,19 @@ def web_content_summarize(web_content):
 #     # print("URL EXTRACTED:", markdown_lines, flush=True)
 #     return markdown_content
 
+def replace_short_lines(text, new_line='\n'):
+    # Split the text into lines
+    lines = text.splitlines()
+    # Iterate through each line and replace short lines
+    updated_lines = [line if len(line) >= 3 else new_line for line in lines]
+    # Join the updated lines back into a single string
+    return '\n'.join(updated_lines)
+
 def docling_cleanup(input_str):
     # <!-- image --> tag cleanup
     input_str = input_str.replace('<!-- image -->', '')
     # Lines with empty spaces
-    lines = filter(lambda x: not x.isspace(), input_str.split('\n'))
-    input_str = '\n'.join(list(lines))
-    del lines
+    input_str = replace_short_lines(input_str, '\n')
     # clean excessive newlines
     _cnt = 0
     ret_str = ''
@@ -490,7 +496,7 @@ while True:
         print("Ignoring question and search string as search_str length is greater than limit", flush=True)
         continue
 
-    max_results = random.choice(range(1, 4))
+    max_results = random.choice(range(2, 4))
     context, source_urls = search_tool(search_str, max_results=max_results)
     if context.strip() == '': 
         print("Empty context found", flush=True)
