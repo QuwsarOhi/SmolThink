@@ -4,79 +4,154 @@ import ollama
 import random
 import json
 import re
-from bs4 import BeautifulSoup
-import requests
+# from bs4 import BeautifulSoup
+# import requests
 from duckduckgo_search import DDGS
+
+# import urllib.request
+import requests
+from io import BytesIO
+from docling.backend.html_backend import HTMLDocumentBackend
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.document import InputDocument
 
 # ds = load_dataset("neural-bridge/rag-dataset-12000")['train']
 
 # %%
 # Phi3 templates
 
+# search_query_template = \
+# """<|system|>
+# You are a helpful assistant. You will be asked a question. Imagine you do not know the answer of the question. As a result, you want to search the web to find the answer. For the given user question, write a search question that could be used in search engine to find the answer to the question. The search string that you would produce should be inside <search tag>. 
+# For example: <search> your search string </search><|end|>
+# <|user|>
+# {query}<|end|>
+# <|assistant|>
+# Sure! Here is the one short search string that I would use to search on the web:
+# <search>"""
+
+
+# question_gen_template = \
+# """<|system|>
+# You are a helpful assistant who is very good at generating question. The user would give you a topic, you have to come up with a question so that the question can be used to train a good quality LLM.<|end|>
+# <|user|>
+# Generate question in topic of: {topic_name}
+
+# Produce the question inside "question" tag. Example: <question> your generated question </question><|end|>
+# <|assistant|>
+# Sure! Here is the question on topic {topic_name}:
+# <question>"""
+
+# # Ref: https://huggingface.co/learn/cookbook/en/llm_judge
+# llm_judge_search_prompt = \
+# """<|system|>
+# You will be given a topic, user_question, and search_string triplet.
+# Your task is to provide a 'total rating' scoring how well the search_string alings the user concerns expressed in the user_question.
+# Give your answer on a scale of 1 to 4, where 1 means that the system_answer is not helpful at all, and 4 means that the system_answer completely and helpfully addresses the user_question.
+
+# Here is the scale you should use to build your answer:
+# 1: The system_question is not on topic: completely irrelevant to the topic, or very partial
+# 2: The system_question is mostly not helpful: has grammatical error or seems to be incomplete
+# 3: The search_string is mostly helpful: provides concise prompt that can be used in web search engine
+# 4: The search_string is excellent: relevant, direct, and addresses important concerns raised in the system_question
+
+# Use the following rubrics to award the points:
+# - Award 1 point if the user_question is related to the topic.
+# - Give 1 additional point if the system_question is clear and precise.
+# - Provide 1 further point if the search_str is concise.
+# - One final point should be awarded if the search_str is direct and addresses important concerns raised in system_question.
+
+# Provide your feedback as follows:
+
+# Feedback:::
+# Evaluation: <eval> (your rationale for the rating, as a text) </eval>
+# Total rating: <rating> (your rating, as a number between 1 and 4) </rating>
+
+# You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<|end|>
+# <|user|>
+# Now here are the question and answer.
+
+# Topic: {topic}
+# Question: {question}
+# Search string: {search_str}
+
+# Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<|end|>
+# <|assistant|>
+# Feedback:::
+# Evaluation: <eval>"""
+
+# llm_judge_prompt = \
+# """<|system|>
+# You will be given a user_question and system_answer couple.
+# Your task is to provide a 'total rating' scoring how well the system_answer answers the user concerns expressed in the user_question.
+# Give your answer on a scale of 1 to 4, where 1 means that the system_answer is not helpful at all, and 4 means that the system_answer completely and helpfully addresses the user_question.
+
+# Here is the scale you should use to build your answer:
+# 1: The system_answer is terrible: completely irrelevant to the question asked, or very partial
+# 2: The system_answer is mostly not helpful: misses some key aspects of the question
+# 3: The system_answer is mostly helpful: provides support, but still could be improved
+# 4: The system_answer is excellent: relevant, direct, detailed, and addresses all the concerns raised in the question
+
+# Use the following rubrics to award the points:
+# - Award 1 point if the answer is related to the question.
+# - Give 1 additional point if the answer is clear, precise, and not repetitive.
+# - Provide 1 further point if the answer is true and follows proper markdown format.
+# - One final point should be awarded if the answer provides additional resources to support the user.
+
+
+# Provide your feedback as follows:
+
+# Feedback:::
+# Evaluation: <eval> (your rationale for the rating, as a text) </eval>
+# Total rating: <rating> (your rating, as a number between 1 and 4) </rating>
+
+# You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<|end|>
+# <|user|>
+# Now here are the question and answer.
+
+# Question: {question}
+# Answer: {answer}
+
+# Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<|end|>
+# <|assistant|>
+# Feedback:::
+# Evaluation: <eval>"""
+
+# %%
+
 search_query_template = \
-"""<|system|>
-You are a helpful assistant. You will be asked a question. Imagine you do not know the answer of the question. As a result, you want to search the web to find the answer. For the given user question, write a search question that could be used in search engine to find the answer to the question. The search string that you would produce should be inside <search tag>. 
+"""You are a helpful assistant. You will be asked a question. Imagine you do not know the answer of the question. As a result, you want to search the web to find the answer. For the given user question, write a search question that could be used in search engine to find the answer to the question. The search string that you would produce should be inside <search tag>. 
 For example: <search> your search string </search><|end|>
-<|user|>
-{query}<|end|>
-<|assistant|>
+<｜User｜>
+{query}
+<｜end▁of▁sentence｜>
+<｜Assistant｜>
+<think>
+
+</think>
+
 Sure! Here is the one short search string that I would use to search on the web:
 <search>"""
 
 
 question_gen_template = \
-"""<|system|>
-You are a helpful assistant who is very good at generating question. The user would give you a topic, you have to come up with a question so that the question can be used to train a good quality LLM.<|end|>
-<|user|>
+"""You are a helpful assistant who is very good at generating question. The user would give you a topic, you have to come up with a question so that the question can be used to train a good quality LLM.<|end|>
+<｜User｜>
 Generate question in topic of: {topic_name}
 
-Produce the question inside "question" tag. Example: <question> your generated question </question><|end|>
-<|assistant|>
+Produce the question inside "question" tag. Example: <question> your generated question </question>
+<｜end▁of▁sentence｜>
+<｜Assistant｜>
+<think>
+
+</think>
+
 Sure! Here is the question on topic {topic_name}:
 <question>"""
 
 # Ref: https://huggingface.co/learn/cookbook/en/llm_judge
-llm_judge_search_prompt = \
-"""<|system|>
-You will be given a topic, user_question, and search_string triplet.
-Your task is to provide a 'total rating' scoring how well the search_string alings the user concerns expressed in the user_question.
-Give your answer on a scale of 1 to 4, where 1 means that the system_answer is not helpful at all, and 4 means that the system_answer completely and helpfully addresses the user_question.
-
-Here is the scale you should use to build your answer:
-1: The system_question is not on topic: completely irrelevant to the topic, or very partial
-2: The system_question is mostly not helpful: has grammatical error or seems to be incomplete
-3: The search_string is mostly helpful: provides concise prompt that can be used in web search engine
-4: The search_string is excellent: relevant, direct, and addresses important concerns raised in the system_question
-
-Use the following rubrics to award the points:
-- Award 1 point if the user_question is related to the topic.
-- Give 1 additional point if the system_question is clear and precise.
-- Provide 1 further point if the search_str is concise.
-- One final point should be awarded if the search_str is direct and addresses important concerns raised in system_question.
-
-Provide your feedback as follows:
-
-Feedback:::
-Evaluation: <eval> (your rationale for the rating, as a text) </eval>
-Total rating: <rating> (your rating, as a number between 1 and 4) </rating>
-
-You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<|end|>
-<|user|>
-Now here are the question and answer.
-
-Topic: {topic}
-Question: {question}
-Search string: {search_str}
-
-Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<|end|>
-<|assistant|>
-Feedback:::
-Evaluation: <eval>"""
-
-
 llm_judge_prompt = \
-"""<|system|>
-You will be given a user_question and system_answer couple.
+"""You will be given a user_question and system_answer couple.
 Your task is to provide a 'total rating' scoring how well the system_answer answers the user concerns expressed in the user_question.
 Give your answer on a scale of 1 to 4, where 1 means that the system_answer is not helpful at all, and 4 means that the system_answer completely and helpfully addresses the user_question.
 
@@ -99,21 +174,26 @@ Feedback:::
 Evaluation: <eval> (your rationale for the rating, as a text) </eval>
 Total rating: <rating> (your rating, as a number between 1 and 4) </rating>
 
-You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<|end|>
-<|user|>
+You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<｜end▁of▁sentence｜>
+<｜User｜>
 Now here are the question and answer.
 
 Question: {question}
 Answer: {answer}
 
-Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<|end|>
-<|assistant|>
+Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<｜end▁of▁sentence｜>
+<｜Assistant｜>
+<think>
+
+</think>
+
 Feedback:::
 Evaluation: <eval>"""
 
+
 # %%
 # https://github.com/ollama/ollama-python/blob/main/examples/async-chat-stream/main.py
-def ollama_infr(prompt, extra_stops=[], model='phi3.5:latest', temperature=0.7):
+def ollama_infr(prompt, extra_stops=[], model='deepseek-r1:7b', temperature=0.7):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
     return ollama.generate(
         model = model,
@@ -123,7 +203,7 @@ def ollama_infr(prompt, extra_stops=[], model='phi3.5:latest', temperature=0.7):
         prompt = prompt,
         stream = True,
         # Number of seconds to keep the connection alive
-        keep_alive=60*60,
+        keep_alive=-1, # Will keep the model loaded,
         options = {
             'stop': [
                 "<|start_header_id|>",
@@ -132,7 +212,7 @@ def ollama_infr(prompt, extra_stops=[], model='phi3.5:latest', temperature=0.7):
             ] + extra_stops,
             'temperature': temperature,
             # 'top_k': 1,
-            'cache': False,
+            'cache': True,
             # 'tfs_z': 2.0,
             'num_ctx': 6000,
             # 'temperature': 0.0,
@@ -216,7 +296,7 @@ def web_content_summarize(web_content):
     prompt = summarize_template.format(web_content=web_content)
     # print("Question:", data['question'], flush=True)
 
-    stream = ollama_infr(prompt=prompt, model='phi3.5:latest', temperature=0.5)
+    stream = ollama_infr(prompt=prompt, model='deepseek-r1:7b', temperature=0.5)
     model_res = '<summary>\n'
     n_tokens = 0
 
@@ -234,47 +314,105 @@ def web_content_summarize(web_content):
     return ''
 
 # %%
+# def url_content(url):
+#     headers = {'User-Agent': 'Mozilla/5.0'}
+#     response = requests.get(url, headers=headers)
+#     response.raise_for_status()
+#     soup = BeautifulSoup(response.content, 'html.parser')
+
+#     # Remove scripts, styles, navs, headers, footers, and typical ad elements
+#     for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript', 'iframe']):
+#         tag.decompose()
+
+#     ad_classes = ['advertisement', 'ad', 'adsbygoogle', 'promo', 'banner', 'cookie-banner', 'subscribe']
+#     for class_name in ad_classes:
+#         for tag in soup.select(f'.{class_name}, #{class_name}'):
+#             tag.decompose()
+
+#     # Remove all links and their content
+#     for a_tag in soup.find_all('a'):
+#         a_tag.decompose()
+
+#     # Markdown content building
+#     markdown_lines = []
+
+#     # Process headings and paragraphs
+#     for element in soup.body.descendants if soup.body else soup.descendants:
+#         if element.name:
+#             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+#                 level = int(element.name[1])
+#                 markdown_lines.append(f"{'#' * level} {element.get_text(strip=True)}\n")
+#             elif element.name in ['ul', 'ol']:
+#                 for li in element.find_all('li'):
+#                     markdown_lines.append(f"- {li.get_text(strip=True)}")
+#             elif element.name == 'p':
+#                 text = element.get_text(strip=True)
+#                 if text:
+#                     markdown_lines.append(f"{text}\n")
+
+#     # Final cleanup: remove empty lines
+#     markdown_lines = list(filter(lambda x: len(x) > 2, markdown_lines))
+#     markdown_content = '\n'.join([line for line in markdown_lines if line.strip()])    
+#     # print("URL EXTRACTED:", markdown_lines, flush=True)
+#     return markdown_content
+
+def docling_cleanup(input_str):
+    # <!-- image --> tag cleanup
+    input_str = input_str.replace('<!-- image -->', '')
+    # Lines with empty spaces
+    lines = filter(lambda x: not x.isspace(), input_str.split('\n'))
+    input_str = '\n'.join(list(lines))
+    del lines
+    # clean excessive newlines
+    _cnt = 0
+    ret_str = ''
+    for c in input_str:
+        if c == '\n':
+            _cnt += 1
+            if _cnt > 2: continue
+            else: ret_str += c
+        else:
+            _cnt = 0
+            ret_str += c
+    return ret_str
+
+# def url_content(url):
+#     user_agent = 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'
+#     values = {
+#         'name' : 'Doland Duck',
+#         'location' : 'Northampton',
+#         'language' : 'Python'
+#     }
+#     headers = {'User-Agent' : user_agent}
+#     data = urllib.parse.urlencode(values)
+#     data = data.encode('ascii')
+#     req = urllib.request.Request(url, data, headers)
+#     text = urllib.request.urlopen(req).read()
+#     in_doc = InputDocument(
+#         path_or_stream=BytesIO(text),
+#         format=InputFormat.HTML,
+#         backend=HTMLDocumentBackend,
+#         filename="duck.html",
+#     )
+
+#     backend = HTMLDocumentBackend(in_doc=in_doc, path_or_stream=BytesIO(text))
+#     dl_doc = backend.convert()
+#     return docling_cleanup(dl_doc.export_to_markdown())
+
 def url_content(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.content, 'html.parser')
+    ascii_text = response.text.encode("ascii", "ignore")
+    in_doc = InputDocument(
+        path_or_stream=BytesIO(ascii_text),
+        format=InputFormat.HTML,
+        backend=HTMLDocumentBackend,
+        filename="duck.html",
+    )
 
-    # Remove scripts, styles, navs, headers, footers, and typical ad elements
-    for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript', 'iframe']):
-        tag.decompose()
-
-    ad_classes = ['advertisement', 'ad', 'adsbygoogle', 'promo', 'banner', 'cookie-banner', 'subscribe']
-    for class_name in ad_classes:
-        for tag in soup.select(f'.{class_name}, #{class_name}'):
-            tag.decompose()
-
-    # Remove all links and their content
-    for a_tag in soup.find_all('a'):
-        a_tag.decompose()
-
-    # Markdown content building
-    markdown_lines = []
-
-    # Process headings and paragraphs
-    for element in soup.body.descendants if soup.body else soup.descendants:
-        if element.name:
-            if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                level = int(element.name[1])
-                markdown_lines.append(f"{'#' * level} {element.get_text(strip=True)}\n")
-            elif element.name in ['ul', 'ol']:
-                for li in element.find_all('li'):
-                    markdown_lines.append(f"- {li.get_text(strip=True)}")
-            elif element.name == 'p':
-                text = element.get_text(strip=True)
-                if text:
-                    markdown_lines.append(f"{text}\n")
-
-    # Final cleanup: remove empty lines
-    markdown_lines = list(filter(lambda x: len(x) > 2, markdown_lines))
-    markdown_content = '\n'.join([line for line in markdown_lines if line.strip()])    
-    # print("URL EXTRACTED:", markdown_lines, flush=True)
-    return markdown_content
+    backend = HTMLDocumentBackend(in_doc=in_doc, path_or_stream=BytesIO(ascii_text))
+    dl_doc = backend.convert()
+    return docling_cleanup(dl_doc.export_to_markdown())
 
 
 def search_tool(search_str, max_results=1):
@@ -289,10 +427,10 @@ def search_tool(search_str, max_results=1):
         i += 1
         try:
             print("Parsing url:", rets[i]['href'], flush=True)
-            web_content = url_content(rets[i]['href'])[:1024*4] + " ..."
+            web_content = url_content(rets[i]['href'])
             web_content = web_content.strip()
-            if web_content == '':
-                continue
+            if web_content == '': continue
+            web_content = web_content[:1024*4] + " (truncated)..."
 
             # web_content = web_content_summarize(web_content=web_content)
             content = f"\n# Source {len(web_source)+1}:"
@@ -310,20 +448,21 @@ def search_tool(search_str, max_results=1):
 topics = [
     "python math question", 
     "git",
+    "docker",
     "coding problem solving", 
-    "python debugging", 
-    "current knowledge", 
+    "software development", 
+    "general knowledge", 
     "terminal commands", 
     "math questions",
-    "leetcode coding problems", 
-    "computer science"
+    "computer science",
+    "algorithms (code in python)"
 ]
 
-for _ in range(500):
+while True:
     topic = random.choice(topics)
     # topic = "greeting"
     print(f"## Topic: {topic}", flush=True)
-    stream = ollama_infr(question_gen_template.format(topic_name=topic), extra_stops=["</question>"])
+    stream = ollama_infr(question_gen_template.format(topic_name=topic), extra_stops=["</question>"], temperature=0.9)
     question = ''
     for part in stream:
         print(part['response'], sep='', end='', flush=True)
@@ -351,7 +490,7 @@ for _ in range(500):
         print("Ignoring question and search string as search_str length is greater than limit", flush=True)
         continue
 
-    max_results = random.choice(range(1, 3))
+    max_results = random.choice(range(1, 4))
     context, source_urls = search_tool(search_str, max_results=max_results)
     if context.strip() == '': 
         print("Empty context found", flush=True)
@@ -374,7 +513,11 @@ for _ in range(500):
         print(part['response'], sep='', end='', flush=True)
         judge_response += part['response']
 
-    rating = extract_rating(judge_response)
+    try:
+        rating = extract_rating(judge_response)
+    except:
+        continue
+    
     print("\n\nRATING:", rating, end="", flush=True)
     print("\n--------", flush=True)
 
