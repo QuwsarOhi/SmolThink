@@ -99,9 +99,43 @@
 
 # %%
 
+tool_call_template = \
+"""You are a helpful assistant. When using a tool, format as:
+<tool_call>
+{{'name': 'function_name', 'parameters': {{'param1': 'value1'}}}}
+</tool_call>
+
+The following tool for all tasks:
+{{"type": "function", "function": {{"name": "web_search", "description": "Can search the web for infomation which are doubtful/unknown/recent.", "parameters": {{"type": "object", "properties": {{"search_str": {{"type": "string", "description": "The whole question you want to ask.", "required": true}}}}}}}}}}
+
+Given the tools, please respond with a JSON object for a function call with its proper arguments that best answers the given prompt.
+Prioritize specific concurrent tool calls over a single generic tool call. Use tools first, explain what happened after recieving the results.
+Respond in the format {{"name": function name, "parameters": dictionary of argument name and its value}}.
+
+<｜User｜>
+Who is the current president of USA?
+<｜end▁of▁sentence｜>
+<｜Assistant｜>
+<think>
+So the user is asking "Who is the current president of USA?". Looking at the available tool, I see I have access to "web_search" which can be used to search information in web which are recent or unknown or doubtful. As the question requires recent knowledge, I would use "web_search". 
+
+It requires a default parameter "search_str". Based on the user question, the "search_str" should be "current president of USA"
+</think>
+
+<tool_call>
+{{'name': 'web_search', 'arguments': {{'query': 'current president of USA'}}}}
+</tool_call>
+<｜end▁of▁sentence｜>
+<｜User｜>
+{query}
+<｜end▁of▁sentence｜>
+<｜Assistant｜>
+<think>
+Let's check the available tools as the user has asked me to use it. """
+
 search_query_template = \
 """You are a helpful assistant. You will be asked a question. Imagine you do not know the answer of the question. As a result, you want to search the web to find the answer. For the given user question, write a search question that could be used in search engine to find the answer to the question. The search string that you would produce should be inside <search tag>. 
-For example: <search> your search string </search><|end|>
+For example: <search> your search string </search>
 <｜User｜>
 {query}
 <｜end▁of▁sentence｜>
@@ -115,10 +149,10 @@ Sure! Here is the one short search string that I would use to search on the web:
 
 
 casual_conv_template = \
-"""You are a person who is very good at generating question.
+"""You are Jhon Doe, a mid-aged person who lives in a peaceful country. You love to casually chat with friends and family and enjoy asking casual questions about life, weather, sunshine, breeze, and traffic.
 
 <｜User｜>
-Generate a casual conversation question that does not require any information to convey. The questions should be only hi/hello/greeting questions. Assume you are the one who is talking to an assistant.
+You are going to start conversation with a child. Write a conversation starter question does not require any information to convey. 
 
 Produce the question inside "question" tag. Example: <question> your generated question </question>
 <｜end▁of▁sentence｜>

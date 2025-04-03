@@ -1,14 +1,17 @@
 import random
 import json
 import re
+# import sys
 
 import ollama
-from prompt_templates import *
+from datagen.prompt_templates import *
 from webtool.webtool import search_tool
 
 
+deepseek_model = 'deepseek-r1:7b'
+
 # https://github.com/ollama/ollama-python/blob/main/examples/async-chat-stream/main.py
-def ollama_infr(prompt, extra_stops=[], model='deepseek-r1:7b', temperature=0.7):
+def ollama_infr(prompt, extra_stops=[], model=deepseek_model, temperature=0.7):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
     return ollama.generate(
         model = model,
@@ -58,7 +61,7 @@ def r1_response(question, context):
         model_res += "</think>"
         prompt = deepseek_r1_nocontext.format(question=question)
         
-    stream = ollama_infr(prompt=prompt, model='deepseek-r1:7b', temperature=0.5)
+    stream = ollama_infr(prompt=prompt, model=deepseek_model, temperature=0.5)
     n_think_tokens = 0
     think_finished = False
 
@@ -89,16 +92,23 @@ def r1_response(question, context):
 
 
 topics = [
-    # "casual greeting"
+    # "casual",
     "python math question", 
     "git",
     "docker",
+    "travel",
+    "python",
+    "history",
+    "arts",
+    "science",
+    "biology",
+    "religion",
     "coding problem solving", 
-    "software development", 
-    "general knowledge", 
-    "terminal commands", 
-    "math questions",
-    "computer science",
+    # "software development", 
+    # "general knowledge", 
+    # "terminal commands", 
+    # "math questions",
+    # "computer science",
     "algorithms (code in python)"
 ]
 
@@ -124,29 +134,37 @@ while True:
         continue
     
     context, source_urls, search_str = '', '', ''
-    if 'casual' not in topic:
-        stream = ollama_infr(search_query_template.format(query=question), extra_stops=["</search>"], temperature=0.3)
-        print("Search str: ", end='', flush=True)
-        for part in stream:
-            print(part['response'], sep='', end='', flush=True)
-            search_str += part['response']
-        print(flush=True)
-        search_str = search_str.strip()
-        search_str = search_str.replace('"', '')
+    stream = ollama_infr(search_query_template.format(query=question), extra_stops=["</search>"], temperature=0.3)
+    print("Search str: ", end='', flush=True)
+    for part in stream:
+        print(part['response'], sep='', end='', flush=True)
+        search_str += part['response']
+    print(flush=True)
+    search_str = search_str.strip()
+    search_str = search_str.replace('"', '')
 
-        if len(search_str) > 300:
-            print("Ignoring question and search string as search_str length is greater than limit", flush=True)
-            continue
+    # stream = ollama_infr(tool_call_template.format(query=question), extra_stops=["</search>"], temperature=0.3)
+    # print("Search str: ", end='', flush=True)
+    # for part in stream:
+    #     print(part['response'], sep='', end='', flush=True)
+    #     search_str += part['response']
+    # print(flush=True)
+    # sys.exit()
 
-        max_results = random.choice(range(2, 4))
-        context, source_urls = search_tool(search_str, max_results=max_results)
-        if context.strip() == '': 
-            print("Empty context found", flush=True)
-            continue
-        
-        print("### Search results:", flush=True)
-        print(context, flush=True)
-        print(flush=True)
+
+    if len(search_str) > 300:
+        print("Ignoring question and search string as search_str length is greater than limit", flush=True)
+        continue
+
+    max_results = random.choice(range(2, 4))
+    context, source_urls = search_tool(search_str, max_results=max_results)
+    if context.strip() == '': 
+        print("Empty context found", flush=True)
+        continue
+    
+    print("### Search results:", flush=True)
+    print(context, flush=True)
+    print(flush=True)
 
     print("### Deepseek-r1", flush=True)
     think, answer = r1_response(question=question, context=context)
@@ -169,7 +187,7 @@ while True:
     print("\n\nRATING:", rating, end="", flush=True)
     print("\n--------", flush=True)
 
-    if rating is not None and rating >= 3.0:
+    if rating is not None and rating >= 1.0:
         write_jsonl({
             "question": question,
             "search_str": search_str,
