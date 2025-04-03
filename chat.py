@@ -20,26 +20,14 @@
 # LoRA vs Full FT
 # * https://www.anyscale.com/blog/fine-tuning-llms-lora-or-full-parameter-an-in-depth-analysis-with-llama-2
 
-import os, sys
+import os
+import json
+from copy import deepcopy
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, StoppingCriteria
-from datasets import load_dataset
-import peft
-from duckduckgo_search import DDGS
 
-import random
-import re
-import json
-import ast
-from copy import deepcopy
-from pathlib import Path
-
-from typing import Optional, List
-from jinja2 import Template
-from transformers.utils import get_json_schema
-
-from bs4 import BeautifulSoup
-import requests
+from webtool.webtool import search_tool, webtool_def
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -186,38 +174,10 @@ chat_template = """{%- if tools %}
     {{- '<|im_start|>assistant\\n<think>\\n' }}
 {%- endif %}"""
 
-# special_tokens_dict = {
-#     "think_start": "<think>",
-#     "think_end": "</think>",
-#     "answer_start": "<answer>",
-#     "answer_end": "</answer>",
-#     "tool_def_start": "<tool>",
-#     "tool_def_end": "</tool>",
-#     "tool_call_start": "<tool_call>",
-#     "tool_call_start": "</tool_call>",
-#     "tool_res_start": "<tool_response>",
-#     "tool_res_end": "</tool_response>",
-# }
-
-# tokenizer = AutoTokenizer.from_pretrained(
-#     MODEL_PATH,
-#     add_bos_token=True,
-#     add_eos_token=True,
-#     # additional_special_tokens=[v for k, v in special_tokens_dict.items()]
-# )
-# tokenizer.chat_template = chat_template
-# tokenizer.pad_token = tokenizer.eos_token
-
-# tokenizer.pad_token = tokenizer.eos_token
-
-# Is model embed_tokens and lm_head sharing same memory? False
-# Do model embed_tokens and lm_head share same weight? True
-
 tokenizer = AutoTokenizer.from_pretrained(
     TOKENIZER_PATH,
     add_bos_token=True,
     add_eos_token=True,
-    # additional_special_tokens=[v for k, v in special_tokens_dict.items()]
 )
 tokenizer.chat_template = chat_template
 streamer = TextStreamer(tokenizer, skip_prompt=False)
@@ -358,98 +318,6 @@ def inference(input_text, max_new_tokens=100, stop_words=[], **kwargs):
 
 
 # %%
-
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Can search the web for infomation which are doubtful/unknown/recent.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "search_str": {
-                        "type": "string",
-                        "description": "The whole question you want to ask. Has to be complete and informative WH-question.",
-                        "required": True,
-                    }
-                },
-            },
-        },
-    }
-]
-
-summary_template = '''Help with my research.
-
-Respond using:
-- Provided search results with referencing links + your knowledge + extra relevant insights (note: referencing links should be in the format [1](URL) and placed immediately after the fact you are quoting)
-- Same language as query
-- Markdown format (allowed components: anchor, bold, italic, code, quote, table)
-
-{search_results}'''
-
-def url_content(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.content, 'html.parser')
-
-    # Remove scripts, styles, navs, headers, footers, and typical ad elements
-    for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript', 'iframe']):
-        tag.decompose()
-
-    ad_classes = ['advertisement', 'ad', 'adsbygoogle', 'promo', 'banner', 'cookie-banner', 'subscribe']
-    for class_name in ad_classes:
-        for tag in soup.select(f'.{class_name}, #{class_name}'):
-            tag.decompose()
-
-    # Remove all links and their content
-    for a_tag in soup.find_all('a'):
-        a_tag.decompose()
-
-    # Markdown content building
-    markdown_lines = []
-
-    # Process headings and paragraphs
-    for element in soup.body.descendants if soup.body else soup.descendants:
-        if element.name:
-            if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                level = int(element.name[1])
-                markdown_lines.append(f"{'#' * level} {element.get_text(strip=True)}\n")
-            elif element.name in ['ul', 'ol']:
-                for li in element.find_all('li'):
-                    markdown_lines.append(f"- {li.get_text(strip=True)}")
-            elif element.name == 'p':
-                text = element.get_text(strip=True)
-                if text:
-                    markdown_lines.append(f"{text}\n")
-
-    # Final cleanup: remove empty lines
-    markdown_lines = list(filter(lambda x: len(x) > 2, markdown_lines))
-    markdown_content = '\n'.join([line for line in markdown_lines if line.strip()])    
-    return markdown_content
-
-
-def search_tool(search_str, full_content=True, max_results=1):
-    rets = None
-    with DDGS() as ddg:
-        rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=max_results))
-
-    str_rets = ''
-    if full_content:
-        str_rets = "Use following information to answer user_question:\n\n"
-        for i, r in enumerate(rets):
-            r = url_content(rets[i]['href'])[:1024*3]
-            str_rets += f"# Source {i+1}:\n" + "-"*10 + f"\n\n{r}\n\n\n"
-    else:
-        str_rets = "Use following information to answer user_question:\n\n"
-        for i, r in enumerate(rets):
-            str_rets += f"# Source {i+1}:\n" + "-"*10 + f"\n\n{r}\n\n\n"
-        
-    return str_rets
-
-
-from ast import literal_eval
 def tool_parse(tool_call:str):
     ret = None
     try:
@@ -460,7 +328,6 @@ def tool_parse(tool_call:str):
     _tool_call = tool_call.replace("'", '"')
     ret = json.loads(_tool_call)
     return ret
-
 
 def tool_call_extract(inp_str:str):
     pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
@@ -484,7 +351,7 @@ while True:
     user_message = input("Your input: ")
     base_prompt = tokenizer.apply_chat_template([
         {"role": "user", "content": user_message}
-    ], tools=tools, tokenize=False, add_generation_prompt=True) #+ "Let's do an information_search to search relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
+    ], tools=[webtool_def], tokenize=False, add_generation_prompt=True) #+ "Let's do an information_search to search relevant information before answering user question\n</think>\n<tool_call>\n{'name': 'information_search', 'arguments': {'search_str': '"
 
     gen = inference(
         base_prompt, 
@@ -509,8 +376,6 @@ while True:
     print("-------")
     base_prompt = tokenizer.apply_chat_template([
         {"role": "user", "content": user_message},
-        # {"role": "assistant", "content": gen},
-        # {"role": "assistant", "tool_calls": [tool_call]},
         {"role": "tool", "content": result}
     ], tools=None, tokenize=False, add_generation_prompt=True) #+ "</think>\n<answer>\n"
 

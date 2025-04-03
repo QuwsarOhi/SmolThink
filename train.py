@@ -21,7 +21,7 @@
 import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
-from datasets import load_dataset, concatenate_datasets,  load_from_disk
+from datasets import load_dataset, concatenate_datasets,  load_from_disk, Dataset
 import peft
 
 # from safetensors.torch import load_model, save_model
@@ -36,13 +36,15 @@ from enum import Enum
 from typing import Optional
 from jinja2 import Template
 from transformers.utils import get_json_schema
+from webtool.webtool import webtool_def
 
 
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 lora_r = None # 32
 SIZE = "360M" #"135M"
-MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
-SAVE_PATH = f"weights/SmolThink-{SIZE}-sft"
+# MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
+MODEL_PATH = "quwsarohi/SmolThink"
+SAVE_PATH = f"weights/SmolThink-{SIZE}-sft-websearch"
 
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
@@ -179,8 +181,9 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 # Gradient checkpointing - Could take more memory in MPS
-# model.gradient_checkpointing_enable(dict(use_reentrant=False))
-model.gradient_checkpointing_disable()
+model.gradient_checkpointing_enable(dict(use_reentrant=False))
+# model.gradient_checkpointing_disable()
+
 # model.resize_token_embeddings(len(tokenizer))
 model = model.to('mps')
 print(f"Model took {model.get_memory_footprint()/1e9:.2f} GB of space (with buffer)")
@@ -292,6 +295,7 @@ if not dataset:
     print("Dataset length:", len(openthought_dataset))
     openthought_dataset = openthought_dataset.map(openthought_code)
     openthought_dataset = openthought_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['conversations'], tools=None, tokenize=False)})
+    openthought_dataset = openthought_dataset.select(range(50))
     print("OpenThought dataset length (after filter):", len(openthought_dataset))
     # print(openthought_dataset[0]['conversations'])
 
@@ -331,12 +335,13 @@ if not dataset:
 
     r1_dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", "v1")['train']
     r1_dataset.shuffle(123)
-    r1_dataset = r1_dataset.select(range(50_000)) # Prev: 90_000
+    r1_dataset = r1_dataset.select(range(50_000, 53_000)) # Prev: 90_000
     r1_dataset = r1_dataset.map(r1distillsft_conv)
     r1_dataset = r1_dataset.filter(lambda x: length_filter(x, 256))
     delete_keys = list(r1_dataset.column_names)
     r1_dataset = r1_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['reannotated_messages'], tools=None, tokenize=False)})
     r1_dataset = r1_dataset.remove_columns(delete_keys)
+    r1_dataset = r1_dataset.select(range(100))
     print("R1-distill dataset length (after filter):", len(r1_dataset))
 
 # %%
@@ -403,6 +408,7 @@ if not dataset:
     # fc_dataset = fc_dataset.select(range(len(fc_dataset)//2))
     fc_dataset = fc_dataset.map(hermes_fc_thinking)
     fc_dataset = fc_dataset.filter(lambda x: len(x['conversations']) > 0)
+    fc_dataset = fc_dataset.select(range(50))
     print("Function calling dataset length (after filter):", len(fc_dataset))
 
 # %%
@@ -456,6 +462,7 @@ if not dataset:
     genreason_dataset = genreason_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['history'], tools=None, tokenize=False)})
     # print(Counter(genreason_dataset['empty']))
     genreason_dataset = genreason_dataset.remove_columns(delete_keys)
+    genreason_dataset = genreason_dataset.select(range(50))
     print("General reason dataset length:", len(genreason_dataset))
 
 
@@ -478,83 +485,57 @@ if not dataset:
     codeforces_cot = codeforces_cot.map(process)
     codeforces_cot = codeforces_cot.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['messages'], tools=None, tokenize=False)})
     codeforces_cot = codeforces_cot.remove_columns(delete_keys)
+    codeforces_cot = codeforces_cot.select(range(50))
     print("Codeforces CoT dataset length:", len(codeforces_cot))
+
+# %%
+if not dataset:
+    def process(data):
+        seq = [
+            {'role': 'user', 'content': data['question']}, 
+            {'role': 'assistant', 'content': f"<think>\n</think>\n<tool_call>\n{{'name': 'web_search', 'arguments': {{'search_str': '{data['search_str']}'}}}}</tool_call>"},
+            {'role': 'tool', 'content': data['search_results']},
+            {'role': 'assistant', 'content': f"<think>{data['think'].strip()}</think>\n<answer>\n{data['answer'].strip()}\n</answer>"}
+        ]
+
+        # data["messages"] = seq
+        data["conversations"] = tokenizer.apply_chat_template(seq, tools=[webtool_def], tokenize=False)
+        return data
+
+    websearch_data = []
+    with open("/Users/ohi/Documents/GitHub/PersonalAssistant/datagen/search_data.jsonl", "r") as f:
+        for line in f:
+            websearch_data.append(json.loads(line))
+    websearch_data = Dataset.from_list(websearch_data)
+    delete_keys = list(websearch_data.column_names)
+    websearch_data = websearch_data.map(process)
+    websearch_data = websearch_data.remove_columns(delete_keys)
+    print("WebSearch dataset length:", len(websearch_data))
 
 
 # %%
 if not dataset:
-    # print("Openthought length:", len(openthought_dataset))
-    # print("R1 length:", len(r1_dataset))
-    # print("FC length:", len(fc_dataset))
-    # print("Gen reason length:", len(genreason_dataset))
-    # print("CF CoT length:", len(codeforces_cot))
-    if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
+    # if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
     with open(os.path.join(SAVE_PATH, 'dataset_example.log'), "w") as f:
-        for k, d in [("OpenThought", openthought_dataset), ("R1", r1_dataset), ("Function Calling", fc_dataset), ("General Reason", genreason_dataset), ("Codeforce CoT", codeforces_cot)]:
+        for k, d in [
+            ("OpenThought", openthought_dataset), 
+            ("R1", r1_dataset), 
+            ("Function Calling", fc_dataset), 
+            ("General Reason", genreason_dataset), 
+            ("Codeforce CoT", codeforces_cot), 
+            ("WebSearch", websearch_data)
+        ]:
             f.write(f"\n{k} length: {len(d)}\n")
             f.write(f"{k}\n{'-'*20}\n{d[0]['conversations']}\n{'='*20}\n\n")
 
-    dataset = concatenate_datasets([openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot])
+    dataset = concatenate_datasets([openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot, websearch_data])
     dataset = dataset.shuffle(12)
-    dataset.save_to_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
-    del r1_dataset, fc_dataset # openthought_dataset
+    # dataset.save_to_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
+    del openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot, websearch_data
+
 
 # %%
 from tqdm import tqdm
-
-# class DatasetGen_v0(torch.utils.data.Dataset):
-#     def __init__(self, dataset, tokenizer):
-#         self.ds = dataset
-#         self.tokenizer = tokenizer
-#         self.prev_cache = None
-#         self.prev_cache_idx = 0
-#         # self.split = split
-    
-#     def __len__(self):
-#         return len(self.ds)
-
-#     def gen_label(self, input_ids):
-#         # Right shift tokens
-#         label = [input_id[1:] + [tokenizer.pad_token_id] for input_id in [input_ids]][0]
-#         return label
-
-#     def gen_data(self):
-#         data = self.ds[random.choice(range(len(self.ds)))]
-#         data = self.tokenizer(
-#             data['conversations'].rstrip(),
-#             max_length=CONTEXT_LEN,
-#             truncation=True,
-#             return_overflowing_tokens=True, # Return the overflowing tokens
-#             stride=CONTEXT_LEN // 8,
-#             # We can remove this when batch_size = 1
-#             padding='max_length'
-#             # padding='do_not_pad'
-#         )
-#         return data
-    
-#     def __getitem__(self, idx):
-#         if self.prev_cache is None or self.prev_cache_idx >= len(self.prev_cache['input_ids']):
-#             self.prev_cache = self.gen_data()
-#             self.prev_cache_idx = 0
-
-#         input_ids = self.prev_cache['input_ids'][self.prev_cache_idx]
-#         attention_mask = self.prev_cache['attention_mask'][self.prev_cache_idx]
-#         self.prev_cache_idx += 1
-
-#         return {
-#             'input_ids': input_ids,
-#             'attention_mask': attention_mask,
-#             'labels': self.gen_label(input_ids)
-#         }
-
-#     def detokenize(self, data):
-#         if isinstance(data, int):
-#             data = self.__getitem__(data)
-
-#         return {
-#             'input': self.tokenizer.decode(data['input_ids']),
-#             'output': self.tokenizer.decode(data['labels'])
-#         }
 
 class DatasetGen_v1(torch.utils.data.Dataset):
     def __init__(self, dataset, tokenizer):
@@ -607,15 +588,16 @@ class DatasetGen_v1(torch.utils.data.Dataset):
 
 # %%
 DS_LEN = len(dataset)
-CONTEXT_LEN = 832 # 1024
+CONTEXT_LEN = 1024 * 3 #832 # 1024
+TEST_DS_LEN = 50# 250
+
 print("Total dataset len:", DS_LEN)
 train_ds = DatasetGen_v1(
-    dataset=dataset.select(range(0, DS_LEN-250)), 
-    # dataset=dataset.select(range(int((DS_LEN-250)//2), DS_LEN-250)), 
+    dataset=dataset.select(range(0, DS_LEN-TEST_DS_LEN)), 
     tokenizer=tokenizer
 )
 test_ds = DatasetGen_v1(
-    dataset=dataset.select(range(int(DS_LEN-250), DS_LEN)), 
+    dataset=dataset.select(range(int(DS_LEN-TEST_DS_LEN), DS_LEN)), 
     tokenizer=tokenizer
 )
 
@@ -678,8 +660,8 @@ training_args = TrainingArguments(
     dataloader_pin_memory=True,
     # dataloader_num_workers=1,
     # Gradient checkpointing - reduces memory in MPS
-    gradient_checkpointing=False,
-    # gradient_checkpointing_kwargs={"use_reentrant": False},
+    gradient_checkpointing=True,
+    gradient_checkpointing_kwargs={"use_reentrant": False},
 )
 
 # %%
