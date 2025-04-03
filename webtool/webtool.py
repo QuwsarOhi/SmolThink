@@ -102,7 +102,7 @@ def url_content(url):
     return docling_cleanup(dl_doc.export_to_markdown())
 
 
-def search_tool(search_str, max_results=1):
+def search_tool(search_str, trim=4096, max_results=1):
     rets = None
     with DDGS() as ddg:
         rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=7))
@@ -117,7 +117,7 @@ def search_tool(search_str, max_results=1):
             web_content = url_content(rets[i]['href'])
             web_content = web_content.strip()
             if web_content == '': continue
-            web_content = web_content[:1024*4] + " (truncated)..."
+            web_content = web_content[:trim] + " (truncated)..."
 
             # web_content = web_content_summarize(web_content=web_content)
             content = f"\n# Source {len(web_source)+1}:"

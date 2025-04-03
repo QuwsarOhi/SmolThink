@@ -23,6 +23,7 @@
 import os
 import json
 from copy import deepcopy
+import re
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, StoppingCriteria
@@ -56,7 +57,7 @@ SIZE = "360M" #"135M" #"360M"
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
-FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft")
+FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch")
 # FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolLM2-{SIZE}-grpo")
 
 TOKENIZER_PATH = FILE_PATH
@@ -368,7 +369,7 @@ while True:
     # break
     # what is ci/cd?
     try:
-        result = search_tool(tool_call['arguments']['search_str'])#[:1024*2] + "..."
+        result, urls = search_tool(tool_call['arguments']['search_str'], trim=1024*6)#[:1024*2] + "..."
     except Exception as E:
         print("Cannot process tool_call. Falling back", flush=True)
         continue

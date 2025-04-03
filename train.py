@@ -630,7 +630,7 @@ SAVE_STEPS = 400
 training_args = TrainingArguments(
     output_dir=SAVE_PATH,
     # SmolLM2 SFT learning rate: 3.0 * 10-4
-    learning_rate = 5e-5, #(3e-3)*(1/128), # prev lr: 2e-4 (for BS: 4),
+    learning_rate = 5e-5,
     adam_beta1 = 0.9,
     adam_beta2 = 0.99,
     weight_decay = 0.2,
