@@ -494,7 +494,7 @@ if not dataset:
         seq = [
             {'role': 'user', 'content': data['question']}, 
             {'role': 'assistant', 'content': f"<think>\n</think>\n<tool_call>\n{{'name': 'web_search', 'arguments': {{'search_str': '{data['search_str']}'}}}}</tool_call>"},
-            {'role': 'tool', 'content': data['search_results']},
+            {'role': 'tool', 'content': data['search_results'] + f"\n\nUser question: {data['question']}"},
             {'role': 'assistant', 'content': f"<think>{data['think'].strip()}</think>\n<answer>\n{data['answer'].strip()}\n</answer>"}
         ]
 

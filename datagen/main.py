@@ -8,10 +8,13 @@ from datagen.prompt_templates import *
 from webtool.webtool import search_tool
 
 
-deepseek_model = 'deepseek-r1:7b'
+search_str_model = 'deepseek-r1:7b'
+ques_gen_model = 'phi3.5:latest' #'deepseek-r1:7b'
+reasoning_model = 'deepseek-r1:7b'
+judge_model = 'phi3.5:latest' #'deepseek-r1:7b'
 
 # https://github.com/ollama/ollama-python/blob/main/examples/async-chat-stream/main.py
-def ollama_infr(prompt, extra_stops=[], model=deepseek_model, temperature=0.7):
+def ollama_infr(prompt, model, extra_stops=[], temperature=0.9):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
     return ollama.generate(
         model = model,
@@ -21,7 +24,7 @@ def ollama_infr(prompt, extra_stops=[], model=deepseek_model, temperature=0.7):
         prompt = prompt,
         stream = True,
         # Number of seconds to keep the connection alive
-        keep_alive=-1, # Will keep the model loaded,
+        keep_alive='60m', # Will keep the model loaded,
         options = {
             'stop': [
                 "<|start_header_id|>",
@@ -61,7 +64,7 @@ def r1_response(question, context):
         model_res += "</think>"
         prompt = deepseek_r1_nocontext.format(question=question)
         
-    stream = ollama_infr(prompt=prompt, model=deepseek_model, temperature=0.5)
+    stream = ollama_infr(prompt=prompt, model=reasoning_model, temperature=0.5)
     n_think_tokens = 0
     think_finished = False
 
@@ -116,10 +119,8 @@ while True:
     topic = random.choice(topics)
     # topic = "greeting"
     print(f"\n\n# Topic: {topic}", flush=True)
-    if 'casual' in topic:
-        stream = ollama_infr(casual_conv_template, extra_stops=["</question>"], temperature=0.9)
-    else:
-        stream = ollama_infr(question_gen_template.format(topic_name=topic), extra_stops=["</question>"], temperature=0.9)
+
+    stream = ollama_infr(question_gen_template_phi3.format(topic_name=topic), model=ques_gen_model, extra_stops=["</question>"], temperature=0.9)
     question = ''
     for part in stream:
         print(part['response'], sep='', end='', flush=True)
@@ -134,7 +135,7 @@ while True:
         continue
     
     context, source_urls, search_str = '', '', ''
-    stream = ollama_infr(search_query_template.format(query=question), extra_stops=["</search>"], temperature=0.3)
+    stream = ollama_infr(search_query_template_deepseek.format(query=question), model=search_str_model, extra_stops=["</search>"], temperature=0.3)
     print("Search str: ", end='', flush=True)
     for part in stream:
         print(part['response'], sep='', end='', flush=True)
@@ -142,15 +143,6 @@ while True:
     print(flush=True)
     search_str = search_str.strip()
     search_str = search_str.replace('"', '')
-
-    # stream = ollama_infr(tool_call_template.format(query=question), extra_stops=["</search>"], temperature=0.3)
-    # print("Search str: ", end='', flush=True)
-    # for part in stream:
-    #     print(part['response'], sep='', end='', flush=True)
-    #     search_str += part['response']
-    # print(flush=True)
-    # sys.exit()
-
 
     if len(search_str) > 300:
         print("Ignoring question and search string as search_str length is greater than limit", flush=True)
@@ -173,7 +165,7 @@ while True:
         continue
 
     print("\n\n### LLM As Judge", flush=True)
-    stream = ollama_infr(llm_judge_prompt.format(question=question, answer=answer), extra_stops=["</rating>"])
+    stream = ollama_infr(llm_judge_prompt_phi3.format(question=question, answer=answer), model=judge_model, extra_stops=["</rating>"])
     judge_response = ''
     for part in stream:
         print(part['response'], sep='', end='', flush=True)
