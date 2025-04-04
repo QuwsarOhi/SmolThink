@@ -1,4 +1,4 @@
-# %%
+
 # Reference:
 # * https://huggingface.co/agents-course/notebooks/blob/main/bonus-unit1/bonus-unit1.ipynb
 # * https://colab.research.google.com/#scrollTo=29da85c8-33bf-4864-aed7-733cbe703512&fileId=https%3A//huggingface.co/agents-course/notebooks/blob/main/bonus-unit1/bonus-unit1.ipynb
@@ -53,7 +53,7 @@ SAVE_PATH = f"weights/SmolThink-{SIZE}-sft-websearch"
 # dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
 dataset = None
 
-# %%
+
 chat_template = """{%- if tools %}
     {{- '<|endoftext|><|im_start|>system\\n' }}
         {%- if messages[0]['role'] == 'system' %}
@@ -167,7 +167,7 @@ tools = [
 #     {"role": "assistant", "content": "12/12/12"}
 # ], tools=tools, tokenize=False))
 
-# %%
+
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_PATH,
     # "/Users/ohi/Documents/GitHub/PersonalAssistant/weights/checkpoint-22400",
@@ -188,7 +188,7 @@ model.gradient_checkpointing_enable(dict(use_reentrant=False))
 model = model.to('mps')
 print(f"Model took {model.get_memory_footprint()/1e9:.2f} GB of space (with buffer)")
 
-# %%
+
 # PEFT ref: https://huggingface.co/docs/transformers/en/peft
 
 # r: rank dimension for LoRA update matrices (smaller = more compression)
@@ -243,7 +243,7 @@ if lora_r:
     print(f"Total LoRA layers: {lora_layers}")
     print(f"Approx size: {lora_param * 2e-6:.2f} mb")
 
-# %%
+
 print(f"Model took {model.get_memory_footprint()/1e9:.2f} GB of space (with buffer)")
 if lora_r:
     print("Are LoRA weight of embed_tokens and lm_head same?", torch.equal(model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight, model.base_model.model.lm_head.modules_to_save["smolthink"].weight))
@@ -254,7 +254,7 @@ else:
     print("Are LoRA weight of embed_tokens and lm_head same?", torch.equal(model.model.embed_tokens.weight, model.lm_head.weight))
     print("Do model embed_tokens and lm_head sharing same memory?", model.model.embed_tokens.weight.data.data_ptr() == model.lm_head.weight.data.data_ptr())
 
-# %%
+
 def length_filter(data, limit):
     # if data['thought_len'] + data['answer_len'] > 896:
         # return False
@@ -299,7 +299,7 @@ if not dataset:
     print("OpenThought dataset length (after filter):", len(openthought_dataset))
     # print(openthought_dataset[0]['conversations'])
 
-# %%
+
 if not dataset:
     def r1distillsft_conv(data):
         thought_len, answer_len = 0, 0
@@ -344,7 +344,7 @@ if not dataset:
     r1_dataset = r1_dataset.select(range(100))
     print("R1-distill dataset length (after filter):", len(r1_dataset))
 
-# %%
+
 if not dataset:
 # if True:
     def extract_tag(input_str, tag):
@@ -411,7 +411,7 @@ if not dataset:
     fc_dataset = fc_dataset.select(range(50))
     print("Function calling dataset length (after filter):", len(fc_dataset))
 
-# %%
+
 if not dataset:
     def generalreason_conv(data):
         history = None
@@ -466,7 +466,7 @@ if not dataset:
     print("General reason dataset length:", len(genreason_dataset))
 
 
-# %%
+
 if not dataset:
     def process(data):
         for idx, message in enumerate(data['messages']):
@@ -488,13 +488,13 @@ if not dataset:
     codeforces_cot = codeforces_cot.select(range(50))
     print("Codeforces CoT dataset length:", len(codeforces_cot))
 
-# %%
+
 if not dataset:
     def process(data):
         seq = [
             {'role': 'user', 'content': data['question']}, 
             {'role': 'assistant', 'content': f"<think>\n</think>\n<tool_call>\n{{'name': 'web_search', 'arguments': {{'search_str': '{data['search_str']}'}}}}</tool_call>"},
-            {'role': 'tool', 'content': data['search_results'] + f"\n\nUser question: {data['question']}"},
+            {'role': 'tool', 'content': data['search_results'] + f"\n\n\nUser question: {data['question']}\n"},
             {'role': 'assistant', 'content': f"<think>{data['think'].strip()}</think>\n<answer>\n{data['answer'].strip()}\n</answer>"}
         ]
 
@@ -513,9 +513,9 @@ if not dataset:
     print("WebSearch dataset length:", len(websearch_data))
 
 
-# %%
+
 if not dataset:
-    # if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
+    if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
     with open(os.path.join(SAVE_PATH, 'dataset_example.log'), "w") as f:
         for k, d in [
             ("OpenThought", openthought_dataset), 
@@ -534,7 +534,7 @@ if not dataset:
     del openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot, websearch_data
 
 
-# %%
+
 from tqdm import tqdm
 
 class DatasetGen_v1(torch.utils.data.Dataset):
@@ -586,7 +586,7 @@ class DatasetGen_v1(torch.utils.data.Dataset):
         }
 
 
-# %%
+
 DS_LEN = len(dataset)
 CONTEXT_LEN = 1024 * 3 #832 # 1024
 TEST_DS_LEN = 50# 250
@@ -606,7 +606,7 @@ test_ds = DatasetGen_v1(
 # print(train_ds.detokenize(99)['input'])
 # print(train_ds[0].keys())
 
-# %%
+
 from transformers import (
     # DataCollatorForSeq2Seq,
     TrainingArguments,
@@ -664,7 +664,7 @@ training_args = TrainingArguments(
     gradient_checkpointing_kwargs={"use_reentrant": False},
 )
 
-# %%
+
 import transformers, gc
 
 class MpsCacheClearCallback(transformers.TrainerCallback):
@@ -688,7 +688,7 @@ class WeightTieCallback(transformers.TrainerCallback):
         model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight = model.base_model.model.lm_head.modules_to_save["smolthink"].weight
         print("------ Weight tied ------")
 
-# %%
+
 trainer = Trainer(
     model = model,
     processing_class = tokenizer,

@@ -1,4 +1,4 @@
-# %%
+
 # Reference:
 # * https://huggingface.co/agents-course/notebooks/blob/main/bonus-unit1/bonus-unit1.ipynb
 # * https://colab.research.google.com/#scrollTo=29da85c8-33bf-4864-aed7-733cbe703512&fileId=https%3A//huggingface.co/agents-course/notebooks/blob/main/bonus-unit1/bonus-unit1.ipynb
@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore")
 
 # os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
-# %%
+
 def get_latest_checkpoint(base_directory):
     checkpoint_dirs = []
     
@@ -57,7 +57,7 @@ SIZE = "360M" #"135M" #"360M"
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
-FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch")
+FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch-v0")
 # FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolLM2-{SIZE}-grpo")
 
 TOKENIZER_PATH = FILE_PATH
@@ -119,7 +119,7 @@ print("Do model embed_tokens and lm_head share same weight?", torch.equal(model.
 # print("Do model embed_tokens and lm_head share same weight?", torch.equal(model.base_model.embed_tokens.weight, model.lm_head.weight))
 
 
-# %%
+
 chat_template = """{%- if tools %}
     {{- '<|endoftext|><|im_start|>system\\n' }}
         {%- if messages[0]['role'] == 'system' %}
@@ -185,7 +185,7 @@ streamer = TextStreamer(tokenizer, skip_prompt=False)
 
 print("\n-----\n")
 
-# %%
+
 
 # Ref: https://github.com/nestordemeure/stop_word/blob/main/stop_word_criteria.py
 
@@ -318,7 +318,7 @@ def inference(input_text, max_new_tokens=100, stop_words=[], **kwargs):
     return tokenizer.decode(outputs[0][input_token_len:], skip_special_tokens=False)
 
 
-# %%
+
 def tool_parse(tool_call:str):
     ret = None
     try:
@@ -370,6 +370,7 @@ while True:
     # what is ci/cd?
     try:
         result, urls = search_tool(tool_call['arguments']['search_str'], trim=1024*6)#[:1024*2] + "..."
+        result += f"\n\n\nUser question: {user_message}\n"
     except Exception as E:
         print("Cannot process tool_call. Falling back", flush=True)
         continue
