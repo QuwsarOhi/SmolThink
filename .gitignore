@@ -161,3 +161,4 @@ cython_debug/
 
 weights/
 .DS_Store
+smolthink-360m-q8.gguf

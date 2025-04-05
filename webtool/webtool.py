@@ -1,5 +1,9 @@
 from io import BytesIO
 import requests
+import json
+import re
+from copy import deepcopy
+from ast import literal_eval
 
 from docling.backend.html_backend import HTMLDocumentBackend
 from docling.datamodel.base_models import InputFormat
@@ -58,6 +62,56 @@ webtool_def = {
         },
     },
 }
+
+def tool_parse(tool_call: str):
+    '''
+    Parses tool call in two different formats:
+    {'function_name': 'fun1', 'arguments': {...}}
+    {"function_name": "fun1", "arguments": {...}}
+    '''
+
+    ret = None
+    try:
+        ret = literal_eval(tool_call)
+    except Exception:
+        pass
+
+    _tool_call = tool_call.replace("'", '"')
+    ret = json.loads(_tool_call)
+    return ret
+
+
+def tool_call_extract(inp_str: str):
+    '''
+    Extracts tool call from format:
+    <tool_call>
+    JSON tool call
+    </tool call>
+    '''
+    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+    tool_calls = pattern.findall(inp_str)
+    if tool_calls:
+        tool_call = tool_parse(tool_calls[0])
+        return tool_call
+    return None
+
+
+def remove_think(inp_str: str):
+    '''Removes 'think' tokens from LLM generated outputs
+    LLM would usually generate the following response pattern:
+    <think>
+    Let's think step by step...
+    </think>
+    <tool_call>
+    JSON tool call
+    <tool_call>
+    '''
+    inp_str = deepcopy(inp_str)
+    pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+    thinks = pattern.findall(inp_str)
+    for think in thinks:
+        inp_str = inp_str.replace(think, "")
+    return inp_str
 
 
 def replace_short_lines(text, new_line='\n'):

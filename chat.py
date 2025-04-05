@@ -35,7 +35,7 @@ from transformers import (
 )
 
 from torch.nn.attention import SDPBackend, sdpa_kernel
-from webtool.webtool import search_tool, webtool_def
+from webtool.webtool import search_tool, webtool_def, tool_call_extract, tool_parse, remove_think
 
 warnings.filterwarnings("ignore")
 
@@ -271,57 +271,6 @@ def inference(input_text, max_new_tokens=100, stop_words=[], **kwargs):
     return tokenizer.decode(outputs[0][input_token_len:], skip_special_tokens=False)
 
 
-def tool_parse(tool_call: str):
-    '''
-    Parses tool call in two different formats:
-    {'function_name': 'fun1', 'arguments': {...}}
-    {"function_name": "fun1", "arguments": {...}}
-    '''
-
-    ret = None
-    try:
-        ret = literal_eval(tool_call)
-    except Exception:
-        pass
-
-    _tool_call = tool_call.replace("'", '"')
-    ret = json.loads(_tool_call)
-    return ret
-
-
-def tool_call_extract(inp_str: str):
-    '''
-    Extracts tool call from format:
-    <tool_call>
-    JSON tool call
-    </tool call>
-    '''
-    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
-    tool_calls = pattern.findall(inp_str)
-    if tool_calls:
-        tool_call = tool_parse(tool_calls[0])
-        return tool_call
-    return None
-
-
-def remove_think(inp_str: str):
-    '''Removes 'think' tokens from LLM generated outputs
-    LLM would usually generate the following response pattern:
-    <think>
-    Let's think step by step...
-    </think>
-    <tool_call>
-    JSON tool call
-    <tool_call>
-    '''
-    inp_str = deepcopy(inp_str)
-    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
-    thinks = pattern.findall(inp_str)
-    for think in thinks:
-        inp_str = inp_str.replace(think, "")
-    return inp_str
-
-
 while True:
     user_message = input("Your input: ")
     base_prompt = tokenizer.apply_chat_template(
@@ -331,7 +280,7 @@ while True:
         add_generation_prompt=True,
     )
 
-    gen = inference(
+    gen = "<think\n>" + inference(
         base_prompt,
         low_memory=True,
         do_sample=False,
@@ -343,7 +292,9 @@ while True:
     
     try:
         result, urls = search_tool(
-            tool_call["arguments"]["search_str"], trim=1024 * 6
+            tool_call["arguments"]["search_str"], 
+            trim=1024 * 6,
+            max_results=2,
         )
         result += f"\n\n\nUser question: {user_message}\n"
     except Exception:
@@ -353,6 +304,7 @@ while True:
     base_prompt = tokenizer.apply_chat_template(
         [
             {"role": "user", "content": user_message},
+            {"role": "assistant", "content": remove_think(gen)},
             {"role": "tool", "content": result},
         ],
         tools=None,
