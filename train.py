@@ -295,7 +295,7 @@ if not dataset:
     print("Dataset length:", len(openthought_dataset))
     openthought_dataset = openthought_dataset.map(openthought_code)
     openthought_dataset = openthought_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['conversations'], tools=None, tokenize=False)})
-    openthought_dataset = openthought_dataset.select(range(50))
+    openthought_dataset = openthought_dataset.select(range(150))
     print("OpenThought dataset length (after filter):", len(openthought_dataset))
     # print(openthought_dataset[0]['conversations'])
 
@@ -335,13 +335,13 @@ if not dataset:
 
     r1_dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", "v1")['train']
     r1_dataset.shuffle(123)
-    r1_dataset = r1_dataset.select(range(50_000, 53_000)) # Prev: 90_000
+    r1_dataset = r1_dataset.select(range(50_000, 55_000)) # Prev: 90_000
     r1_dataset = r1_dataset.map(r1distillsft_conv)
     r1_dataset = r1_dataset.filter(lambda x: length_filter(x, 256))
     delete_keys = list(r1_dataset.column_names)
     r1_dataset = r1_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['reannotated_messages'], tools=None, tokenize=False)})
     r1_dataset = r1_dataset.remove_columns(delete_keys)
-    r1_dataset = r1_dataset.select(range(100))
+    r1_dataset = r1_dataset.select(range(200))
     print("R1-distill dataset length (after filter):", len(r1_dataset))
 
 
@@ -408,7 +408,7 @@ if not dataset:
     # fc_dataset = fc_dataset.select(range(len(fc_dataset)//2))
     fc_dataset = fc_dataset.map(hermes_fc_thinking)
     fc_dataset = fc_dataset.filter(lambda x: len(x['conversations']) > 0)
-    fc_dataset = fc_dataset.select(range(50))
+    fc_dataset = fc_dataset.select(range(150))
     print("Function calling dataset length (after filter):", len(fc_dataset))
 
 
@@ -462,7 +462,7 @@ if not dataset:
     genreason_dataset = genreason_dataset.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['history'], tools=None, tokenize=False)})
     # print(Counter(genreason_dataset['empty']))
     genreason_dataset = genreason_dataset.remove_columns(delete_keys)
-    genreason_dataset = genreason_dataset.select(range(50))
+    genreason_dataset = genreason_dataset.select(range(150))
     print("General reason dataset length:", len(genreason_dataset))
 
 
@@ -485,7 +485,7 @@ if not dataset:
     codeforces_cot = codeforces_cot.map(process)
     codeforces_cot = codeforces_cot.map(lambda x: {"conversations": tokenizer.apply_chat_template(x['messages'], tools=None, tokenize=False)})
     codeforces_cot = codeforces_cot.remove_columns(delete_keys)
-    codeforces_cot = codeforces_cot.select(range(50))
+    codeforces_cot = codeforces_cot.select(range(150))
     print("Codeforces CoT dataset length:", len(codeforces_cot))
 
 
@@ -530,7 +530,7 @@ if not dataset:
 
     dataset = concatenate_datasets([openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot, websearch_data])
     dataset = dataset.shuffle(12)
-    # dataset.save_to_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
+    dataset.save_to_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset_phase2")
     del openthought_dataset, r1_dataset, fc_dataset, genreason_dataset, codeforces_cot, websearch_data
 
 
@@ -566,7 +566,7 @@ class DatasetGen_v1(torch.utils.data.Dataset):
             max_length=CONTEXT_LEN,
             truncation=True,
             return_overflowing_tokens=True, # Return the overflowing tokens
-            stride=CONTEXT_LEN // 8,
+            stride=CONTEXT_LEN // 4,
             padding='max_length'
         )
         self.cache_idx = idx

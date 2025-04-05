@@ -57,7 +57,7 @@ SIZE = "360M" #"135M" #"360M"
 # MODEL_PATH = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 # SAVE_PATH = "SmolThink-Qwen-sft"
 
-FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch-v0")
+FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch")
 # FILE_PATH = get_latest_checkpoint(f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolLM2-{SIZE}-grpo")
 
 TOKENIZER_PATH = FILE_PATH
