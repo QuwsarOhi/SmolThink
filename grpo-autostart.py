@@ -2,14 +2,14 @@ import subprocess
 import time
 
 # Duration to run the command (in seconds)
-RUN_DURATION = 25 * 60  # 30 minutes
+RUN_DURATION = 20 * 60  # 30 minutes
 
 while True:
     try:
         start_time = time.time()
         
         # Run the command and capture output in real-time
-        process = subprocess.Popen(["python3", "grpo-train.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(["python3", "grpo-websearch.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
         # Monitor the process for the specified duration
         while time.time() - start_time < RUN_DURATION:

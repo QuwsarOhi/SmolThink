@@ -14,7 +14,7 @@ reasoning_model = 'deepseek-r1:7b'
 judge_model = 'phi3.5:latest' #'deepseek-r1:7b'
 
 # https://github.com/ollama/ollama-python/blob/main/examples/async-chat-stream/main.py
-def ollama_infr(prompt, model, extra_stops=[], temperature=0.9):
+def ollama_infr(prompt, model, extra_stops=[], temperature=0.9, num_ctx=6000, **kwargs):
     # https://github.com/ollama/ollama-python/blob/00eafed0faa5dea6879a8eb3229c7a8f2439abb4/ollama/_types.py#L93
     return ollama.generate(
         model = model,
@@ -35,9 +35,10 @@ def ollama_infr(prompt, model, extra_stops=[], temperature=0.9):
             # 'top_k': 1,
             'cache': True,
             # 'tfs_z': 2.0,
-            'num_ctx': 6000,
+            'num_ctx': num_ctx,
             # 'temperature': 0.0,
             # 'top_p': 0.0
+            **kwargs
         },
     )
 
@@ -95,7 +96,7 @@ def r1_response(question, context):
 
 
 topics = [
-    # "casual",
+    "casual",
     "python math question", 
     "git",
     "docker",
@@ -107,15 +108,15 @@ topics = [
     "biology",
     "religion",
     "coding problem solving", 
-    # "software development", 
-    # "general knowledge", 
-    # "terminal commands", 
-    # "math questions",
-    # "computer science",
+    "software development", 
+    "general knowledge", 
+    "terminal commands", 
+    "math questions",
+    "computer science",
     "algorithms (code in python)"
 ]
 
-while True:
+while True and __name__ == '__main__':
     topic = random.choice(topics)
     # topic = "greeting"
     print(f"\n\n# Topic: {topic}", flush=True)

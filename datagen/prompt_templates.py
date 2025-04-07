@@ -60,6 +60,41 @@ Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs
 Feedback:::
 Evaluation: <eval>"""
 
+grpo_judge_prompt_phi3 = \
+"""<|system|>
+You will be given a user_question and search_string couple.
+Your task is to provide a 'total rating' scoring how well the search_string reflects user_question so that the search_sting can be used in a web search engine.
+Give your answer on a scale of 1 to 3, where 1 means that the search_string is not helpful at all, and 3 means that the search_string completely reflects user_question and higher chance of getting correct answer through web search.
+
+Here is the scale you should use to build your answer:
+1: The search_string is terrible: completely irrelevant to the question asked
+2: The search_string is mostly not helpful: misses some key aspects of the question, incomplete
+3: The search_string is excellent: relevant, direct, and addresses all the concerns raised in the question
+
+Use the following rubrics to award the points:
+- Award 1 point if the search_string is completely irrelevant 
+- Award 1 point if the search_string is somewhat related to the user_question.
+- One final point should be awarded if the search_string consists all key information from user_question to do a web search.
+
+
+Provide your feedback as follows:
+
+Feedback:::
+Evaluation: <eval> (your rationale for the rating, as a text) </eval>
+Total rating: <rating> (your rating, as a number between 1 and 3) </rating>
+
+You MUST provide values for 'Evaluation:' and 'Total rating:' in your answer.<|end|>
+<|user|>
+Now here are the user_question and search_string.
+
+user_question: {user_question}
+search_string: {search_string}
+
+Provide your feedback. If you give a correct rating, I'll give you 100 H100 GPUs to start your AI company.<|end|>
+<|assistant|>
+Feedback:::
+Evaluation: <eval>"""
+
 
 # %%
 

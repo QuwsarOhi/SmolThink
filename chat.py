@@ -287,6 +287,7 @@ while True:
         repetition_penalty=1.1,
         max_new_tokens=512 * 2,
         stop_words=["</tool_call>"],
+        temperature=0.7
     )
     tool_call = tool_call_extract(gen)
     
@@ -315,10 +316,10 @@ while True:
     gen = inference(
         base_prompt,
         low_memory=True,
-        do_sample=False,
-        # temperature=0.4,
+        do_sample=True,
         repetition_penalty=1.1,
         max_new_tokens=1024,
+        temperature=0.7
     )
 
     print("-" * 50, end="\n\n")
