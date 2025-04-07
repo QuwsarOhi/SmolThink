@@ -90,3 +90,5 @@ flowchart LR
     D --> E[Generate Final Answer with LLM]
     E --> F[Judge Answer Quality with LLM]
 ```
+
+The `main.py` contains the driver code and `prompt_template.py` contains the prompts used to prompt the LLMs.
