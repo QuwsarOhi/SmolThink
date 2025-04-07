@@ -39,7 +39,10 @@ def chat_with_ollama(user_input):
         messages=messages,
         # tools=[webtool_def],
         stream=True,
-        options={'ctx': 1024*8}
+        options={
+            'ctx': 1024*8,
+            'temperature': 0.8
+        }
     )
     
     collected_response = ""  # Store the final assistant message
