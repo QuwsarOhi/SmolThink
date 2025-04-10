@@ -700,8 +700,9 @@ class DatasetGen_v1(torch.utils.data.Dataset):
 
         input_ids = self.cache["input_ids"][q]
         attention_mask = self.cache["attention_mask"][q]
+        labels = [-100 if t == self.tokenizer.pad_token_id else t for t in input_ids]
 
-        return {"input_ids": input_ids, "attention_mask": attention_mask}
+        return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 
 DS_LEN = len(dataset)
@@ -732,14 +733,14 @@ test_ds = DatasetGen_v1(
 # Train on completion only
 # Ref: https://huggingface.co/docs/trl/en/sft_trainer#train-on-completions-only
 
-data_collator = DataCollatorForLanguageModeling(
-    # model = model,
-    tokenizer=tokenizer,
-    mlm=False,
-    # max_length = CONTEXT_LEN,
-    # pad_to_multiple_of = 2,
-    # padding = 'max_length'
-)
+# data_collator = DataCollatorForLanguageModeling(
+#     # model = model,
+#     tokenizer=tokenizer,
+#     mlm=False,
+#     # max_length = CONTEXT_LEN,
+#     # pad_to_multiple_of = 2,
+#     # padding = 'max_length'
+# )
 
 SAVE_STEPS = 400
 training_args = TrainingArguments(
@@ -814,7 +815,7 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_ds,
     eval_dataset=test_ds,
-    data_collator=data_collator,
+    data_collator=None,
     # callbacks=[MpsCacheClearCallback()]
     # callbacks=[WeightTieCallback()]
 )
