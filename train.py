@@ -112,11 +112,27 @@ chat_template = """{%- if tools %}
 
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_PATH,
-    add_bos_token=True,
-    add_eos_token=True,
+    # add_bos_token=True,
+    # add_eos_token=True,
 )
 tokenizer.chat_template = chat_template
-tokenizer.pad_token = tokenizer.unk_token
+tokenizer.bos_token = "<empty_output>"
+tokenizer.eos_token = "<|im_end|>"
+tokenizer.pad_token = "<|endoftext|>"
+tokenizer.unk_token = "<|endoftext|>"
+# tokenizer.padding_side = "left"
+# tokenizer.truncation_side = "left"
+
+# https://stackoverflow.com/questions/69609401/suppress-huggingface-logging-warning-setting-pad-token-id-to-eos-token-id
+model.generation_config.pad_token_id = tokenizer.pad_token_id
+model.generation_config.eos_token_id = tokenizer.eos_token_id
+# print(tokenizer.bos_token_id)
+
+assert tokenizer.bos_token_id == 16
+assert tokenizer.eos_token_id == 2
+assert tokenizer.pad_token_id == 0
+assert tokenizer.unk_token_id == 0
+
 streamer = TextStreamer(tokenizer, skip_prompt=True)
 
 print(
