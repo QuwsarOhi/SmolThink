@@ -122,6 +122,7 @@ def replace_short_lines(text, new_line='\n'):
     # Join the updated lines back into a single string
     return '\n'.join(updated_lines)
 
+
 def docling_cleanup(input_str):
     # <!-- image --> tag cleanup
     input_str = input_str.replace('<!-- image -->', '')
@@ -139,6 +140,7 @@ def docling_cleanup(input_str):
             _cnt = 0
             ret_str += c
     return ret_str
+
 
 def url_content(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -183,4 +185,37 @@ def search_tool(search_str, trim=4096, max_results=1):
         
     return str_rets, web_source
 
-# print(search_tool('current methods used by scientists to improve predictions of climate change and its environmental impact', max_results=1))
+
+def recursive_chunker(text, min_char_len, stop_token):
+    # Good blog to read: https://ai4nerds.github.io/blog/rag/Different%20types%20of%20Chunking.html
+    # Base case: if the text is shorter than the minimum length, return an empty list
+    if len(text) < min_char_len:
+        return []
+    # Check if the stop token is present in the text
+    stop_index = text.find(stop_token)
+    # If the stop token is not found, treat the whole text as one chunk
+    if stop_index == -1:
+        if len(text) >= min_char_len:
+            return [text]
+        else:
+            return []
+
+    # If the stop token is found, split the text at the stop token
+    chunk = text[:stop_index].strip()
+    remaining_text = text[stop_index + len(stop_token):].strip()
+    # If the chunk is valid (meets the minimum length), include it in the result
+    chunks = []
+    if len(chunk) >= min_char_len:
+        chunks.append(chunk)
+    # Recursively process the remaining text
+    return chunks + recursive_chunker(remaining_text, min_char_len, stop_token)
+
+
+if __name__ == '__main__':
+    str_rets, web_source = search_tool('Implement a DFS algorithm in python', trim=None, max_results=1)
+    print(str_rets)
+
+    for idx, chunk in enumerate(recursive_chunker(str_rets, min_char_len=128, stop_token='```')):
+        print(f"Chunk: {idx+1}")
+        print(chunk)
+        print("-+"*10)
