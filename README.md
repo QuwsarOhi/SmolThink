@@ -2,7 +2,7 @@
 
 **SmolThink** model is a Continued Supervised Fine-Tuned version of [SmolLM2-360M](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct) on **Deepseek-R1** distilled dataset.
 
-## Trainin Process
+## Training Process
 
 The model was trained on a mixture of small Chain of Thoughts (CoT) and some long CoT dataset. Small CoT dataset mixture was used as the model is small and it is was reported that small models struggle to produce long reasoning chain [ref](https://arxiv.org/abs/2502.12143).
 
