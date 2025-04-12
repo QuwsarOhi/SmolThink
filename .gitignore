@@ -160,5 +160,6 @@ cython_debug/
 #.idea/
 
 weights/
+datasets/
 .DS_Store
 smolthink-360m-q8.gguf
