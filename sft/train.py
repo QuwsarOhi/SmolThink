@@ -63,7 +63,7 @@ CONTEXT_STRIDE = 2
 TEST_DS_LEN = 200
 SAVE_STEPS = 400 #1000
 
-dataset = load_from_disk("datasets/dataset_ctx1024")
+dataset = load_from_disk(f"datasets/dataset_ctx{CONTEXT_LEN}_cot{REASONING_LEN}")
 # dataset = None
 
 chat_template = """<empty_output>{%- if tools %}
@@ -624,7 +624,7 @@ if not dataset:
             selected_len.append(i)
     dataset = dataset.select(selected_len)
 
-    dataset.save_to_disk(f"datasets/dataset_ctx{CONTEXT_LEN}")
+    dataset.save_to_disk(f"datasets/dataset_ctx{CONTEXT_LEN}_cot{REASONING_LEN}")
     # dataset.to_json(f"datasets/dataset_merged_ctx{CONTEXT_LEN}.json", orient="records")
     # load_dataset("json", data_files="datasets/dataset_merged_ctx{CONTEXT_LEN}.json")
 

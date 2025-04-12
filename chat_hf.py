@@ -53,7 +53,7 @@ def get_latest_checkpoint(base_directory):
 
 SIZE = "360M"
 FILE_PATH = get_latest_checkpoint(
-    f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-websearch"
+    f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-v2"
 )
 
 TOKENIZER_PATH = FILE_PATH
@@ -121,6 +121,7 @@ tokenizer = AutoTokenizer.from_pretrained(
     add_bos_token=True,
     add_eos_token=True,
 )
+# tokenizer.pad_token = tokenizer.unk_token
 streamer = TextStreamer(tokenizer, skip_prompt=False)
 
 # Ref: https://github.com/nestordemeure/stop_word/blob/main/stop_word_criteria.py
@@ -272,6 +273,7 @@ def inference(input_text, max_new_tokens=100, stop_words=[], **kwargs):
 
 
 while True:
+    model.generation_config.eos_token_id = tokenizer.eos_token_id
     user_message = input("Your input: ")
     base_prompt = tokenizer.apply_chat_template(
         [{"role": "user", "content": user_message}],
@@ -287,7 +289,8 @@ while True:
         repetition_penalty=1.1,
         max_new_tokens=512 * 2,
         stop_words=["</tool_call>"],
-        temperature=0.7
+        temperature=0.7,
+        top_k=20
     )
     tool_call = tool_call_extract(gen)
     
