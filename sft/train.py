@@ -26,6 +26,7 @@ import random
 import re
 import gc
 from copy import deepcopy
+from tqdm import tqdm
 
 import peft
 import torch
@@ -35,28 +36,38 @@ from transformers import (
     TextStreamer,
     DataCollatorForLanguageModeling,
     Trainer,
-    TrainingArguments
+    TrainingArguments,
+    DataCollatorWithFlattening
 )
 
 import transformers
-from datasets import Dataset, concatenate_datasets, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
 from webtool.webtool import webtool_def
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 lora_r = None  # 32
-SIZE = "360M"  # "135M"
+SIZE = "360M"
+REASONING_LEN = 256
 
-# MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
-MODEL_PATH = "quwsarohi/SmolThink"
-SAVE_PATH = f"weights/SmolThink-{SIZE}-sft-websearch"
+MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
+# MODEL_PATH = "quwsarohi/SmolThink"
+SAVE_PATH = f"weights/SmolThink-{SIZE}-sft-v2"
+# Phase 1 CONTEXT_LEN = 832
+# Phase 2 CONTEXT_LEN = 1024 * 3
+CONTEXT_LEN = 1024 * 1 #832
+CONTEXT_STRIDE = 2
 
-# dataset = load_from_disk("/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset")
-dataset = None
+# Phase 1 TEST_DS_LEN = 250
+# Phase 2 TEST_DS_LEN = 50
+TEST_DS_LEN = 200
+SAVE_STEPS = 400 #1000
 
+dataset = load_from_disk("datasets/dataset_ctx1024")
+# dataset = None
 
-chat_template = """{%- if tools %}
-    {{- '<|endoftext|><|im_start|>system\\n' }}
+chat_template = """<empty_output>{%- if tools %}
+    {{- '<|im_start|>system\\n' }}
         {%- if messages[0]['role'] == 'system' %}
             {- messages[0]['content'] }}
         {%- else %}
@@ -70,9 +81,9 @@ chat_template = """{%- if tools %}
     {{- \"\\n</tools>\\n\\nYou first think/plan inside <think></think> tags.\\nThen for each function call, return a json object with function name and arguments within <tool_call></tool_call> tags.<|im_end|>\\n\" }}
 {%- else %}
     {%- if messages[0]['role'] == 'system' %}
-        {{- '<|endoftext|><|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
+        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}
     {%- else %}
-        {{- '<|endoftext|><|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
+        {{- '<|im_start|>system\\nYou are a helpful AI assistant named SmolThink. First plan/reason/code/validate inside <think></think> tag and provide final answer to user query inside <answer></answer> tag.<|im_end|>\\n' }}
     {%- endif %}
 {%- endif %}
 {%- for message in messages %}
@@ -110,6 +121,22 @@ chat_template = """{%- if tools %}
     {{- '<|im_start|>assistant\\n<think>\\n' }}
 {%- endif %}"""
 
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_PATH,
+    device_map="cpu",
+    low_cpu_mem_usage=True,
+    attn_implementation="eager",
+    torch_dtype=torch.bfloat16,
+    trust_remote_code=True,
+    use_cache=False,
+    tie_word_embeddings=True,
+).to("mps")
+
+
+## Gradient checkpointing
+# model.gradient_checkpointing_enable(dict(use_reentrant=False))
+model.gradient_checkpointing_disable()
+
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_PATH,
     # add_bos_token=True,
@@ -123,10 +150,10 @@ tokenizer.unk_token = "<|endoftext|>"
 # tokenizer.padding_side = "left"
 # tokenizer.truncation_side = "left"
 
+
 # https://stackoverflow.com/questions/69609401/suppress-huggingface-logging-warning-setting-pad-token-id-to-eos-token-id
 model.generation_config.pad_token_id = tokenizer.pad_token_id
 model.generation_config.eos_token_id = tokenizer.eos_token_id
-# print(tokenizer.bos_token_id)
 
 assert tokenizer.bos_token_id == 16
 assert tokenizer.eos_token_id == 2
@@ -144,6 +171,9 @@ print(
         tokenize=False,
     )
 )
+
+# import sys
+# sys.exit()
 
 ## ----- Prompt Template Debugging ------
 # tools = [
@@ -190,21 +220,6 @@ print(
 #     {"role": "assistant", "content": "12/12/12"}
 # ], tools=tools, tokenize=False))
 
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_PATH,
-    device_map="cpu",
-    low_cpu_mem_usage=True,
-    attn_implementation="eager",
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-    use_cache=False,
-    tie_word_embeddings=True,
-).to("mps")
-
-# Gradient checkpointing
-model.gradient_checkpointing_enable(dict(use_reentrant=False))
-# model.gradient_checkpointing_disable()
 
 # Only if adding new tokens
 # model.resize_token_embeddings(len(tokenizer))
@@ -309,54 +324,6 @@ def length_filter(data, limit):
 
 
 if not dataset:
-
-    def openthought_code(data):
-        thought_len, answer_len = 0, 0
-
-        reply = data["output"]
-        thought = re.findall(r"<thoughts>(.*?)</thoughts>", reply, re.DOTALL)
-        thought = "".join(thought).strip()
-        thought_len += len(thought.split())
-
-        end_tag = "</thoughts>"
-        answer = reply[reply.find(end_tag) + len(end_tag) :]
-        answer = answer.strip()
-        answer_len += len(answer.split())  # len(tokenizer.encode(answer))
-
-        if end_tag not in reply:
-            answer_len = 0
-
-        final_answer = f"<think>\n{thought}\n</think>\n<answer>\n{answer}\n</answer>"
-        final_answer = final_answer.replace("<thoughts>", "").replace("</thoughts>", "")
-
-        output_data = {
-            "thought_len": thought_len,
-            "answer_len": answer_len,
-            "conversations": [
-                {"role": "user", "content": data["input"]},
-                {"role": "assistant", "content": final_answer},
-            ],
-        }
-
-        return output_data
-
-    openthought_dataset = load_dataset("XeTute/Open-Coding-Thoughts")["train"]
-    print("Dataset length:", len(openthought_dataset))
-    openthought_dataset = openthought_dataset.map(openthought_code)
-    openthought_dataset = openthought_dataset.map(
-        lambda x: {
-            "conversations": tokenizer.apply_chat_template(
-                x["conversations"], tools=None, tokenize=False
-            )
-        }
-    )
-    # openthought_dataset = openthought_dataset.select(range(150))
-    print("OpenThought dataset length (after filter):", len(openthought_dataset))
-    # print(openthought_dataset[0]['conversations'])
-
-
-if not dataset:
-
     def r1distillsft_conv(data):
         thought_len, answer_len = 0, 0
         for idx, conv in enumerate(data["reannotated_messages"]):
@@ -393,9 +360,9 @@ if not dataset:
 
     r1_dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", "v1")["train"]
     r1_dataset.shuffle(123)
-    r1_dataset = r1_dataset.select(range(50_000))  # Phase 2: range(50_000, 55_000)
+    # r1_dataset = r1_dataset.select(range(50_000))  # Phase 2: range(50_000, 55_000)
     r1_dataset = r1_dataset.map(r1distillsft_conv)
-    r1_dataset = r1_dataset.filter(lambda x: length_filter(x, 256))
+    r1_dataset = r1_dataset.filter(lambda x: length_filter(x, REASONING_LEN))
     delete_keys = list(r1_dataset.column_names)
     r1_dataset = r1_dataset.map(
         lambda x: {
@@ -410,7 +377,6 @@ if not dataset:
 
 
 if not dataset:
-
     def extract_tag(input_str, tag):
         tool_def = re.findall(f"<{tag}>(.*?)</{tag}>", input_str, re.DOTALL)
         tool_def = map(str.strip, tool_def)
@@ -489,7 +455,6 @@ if not dataset:
 
 
 if not dataset:
-
     def generalreason_conv(data):
         history = None
         data["empty"] = "true"
@@ -538,7 +503,7 @@ if not dataset:
         lambda x: get_ascii(x["model_answer"]) if x["model_answer"] else False
     )
     genreason_dataset = genreason_dataset.filter(
-        lambda x: len(x["model_reasoning"].strip().split()) < 256
+        lambda x: len(x["model_reasoning"].strip().split()) < REASONING_LEN
         if x["model_reasoning"]
         else True
     )
@@ -559,7 +524,6 @@ if not dataset:
 
 
 if not dataset:
-
     def process(data):
         for idx, message in enumerate(data["messages"]):
             if message["role"] != "assistant":
@@ -593,7 +557,6 @@ if not dataset:
 
 
 if not dataset:
-
     def process(data):
         seq = [
             {"role": "user", "content": data["question"]},
@@ -619,9 +582,7 @@ if not dataset:
         return data
 
     websearch_data = []
-    with open(
-        "/Users/ohi/Documents/GitHub/PersonalAssistant/datagen/search_data.jsonl", "r"
-    ) as f:
+    with open("datagen/search_data.jsonl", "r") as f:
         for line in f:
             websearch_data.append(json.loads(line))
     websearch_data = Dataset.from_list(websearch_data)
@@ -636,7 +597,7 @@ if not dataset:
         os.makedirs(SAVE_PATH)
     with open(os.path.join(SAVE_PATH, "dataset_example.log"), "w") as f:
         for k, d in [
-            ("OpenThought", openthought_dataset),
+            # ("OpenThought", openthought_dataset),
             ("R1", r1_dataset),
             ("Function Calling", fc_dataset),
             ("General Reason", genreason_dataset),
@@ -646,32 +607,35 @@ if not dataset:
             f.write(f"\n{k} length: {len(d)}\n")
             f.write(f"{k}\n{'-' * 20}\n{d[0]['conversations']}\n{'=' * 20}\n\n")
 
-    dataset = concatenate_datasets(
-        [
-            openthought_dataset,
-            r1_dataset,
-            fc_dataset,
-            genreason_dataset,
-            codeforces_cot,
-            websearch_data,
-        ]
-    )
+    dataset = concatenate_datasets([
+        # openthought_dataset,
+        r1_dataset,
+        fc_dataset,
+        genreason_dataset,
+        codeforces_cot,
+        websearch_data,
+    ])
     dataset = dataset.shuffle(12)
-    dataset.save_to_disk(
-        "/Users/ohi/Documents/GitHub/PersonalAssistant/datasets/merged_dataset_phase2"
-    )
+
+    selected_len = []
+    for i, d in enumerate(dataset):
+        d = tokenizer.encode(d["conversations"].rstrip())
+        if len(d) < CONTEXT_LEN:
+            selected_len.append(i)
+    dataset = dataset.select(selected_len)
+
+    dataset.save_to_disk(f"datasets/dataset_ctx{CONTEXT_LEN}")
+    # dataset.to_json(f"datasets/dataset_merged_ctx{CONTEXT_LEN}.json", orient="records")
+    # load_dataset("json", data_files="datasets/dataset_merged_ctx{CONTEXT_LEN}.json")
+
     del (
-        openthought_dataset,
+        # openthought_dataset,
         r1_dataset,
         fc_dataset,
         genreason_dataset,
         codeforces_cot,
         websearch_data,
     )
-
-
-from tqdm import tqdm
-
 
 class DatasetGen_v1(torch.utils.data.Dataset):
     def __init__(self, dataset, tokenizer):
@@ -680,8 +644,8 @@ class DatasetGen_v1(torch.utils.data.Dataset):
         self.cache = None
         self.cache_idx = -1
         self.cache_len = 0
-        self.indices = []
-        self._get_len()
+        self.indices = [(i, 0) for i in range(len(self.dataset))]
+        # self._get_len()
 
     def _get_len(self):
         print("Computing dataset length")
@@ -703,7 +667,7 @@ class DatasetGen_v1(torch.utils.data.Dataset):
             return_overflowing_tokens=True,  # Return the overflowing tokens
             # Phase 1 stride=CONTEXT_LEN // 8
             # Phase 2 stride=CONTEXT_LEN // 4
-            stride=CONTEXT_LEN // 4,
+            stride=CONTEXT_LEN // CONTEXT_STRIDE,
             padding="max_length",
         )
         self.cache_idx = idx
@@ -717,21 +681,19 @@ class DatasetGen_v1(torch.utils.data.Dataset):
         input_ids = self.cache["input_ids"][q]
         attention_mask = self.cache["attention_mask"][q]
         labels = [-100 if t == self.tokenizer.pad_token_id else t for t in input_ids]
+        # labels = torch.as_tensor(
+        #     [input_ids[1:] + [self.tokenizer.pad_token_id]], 
+        #     dtype=input_ids.dtype, 
+        #     device=input_ids.device
+        # )
+        # labels = [input_ids[1:] + [self.tokenizer.pad_token_id]]
 
         return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 
 DS_LEN = len(dataset)
-
-# Phase 1 CONTEXT_LEN = 832
-# Phase 2 CONTEXT_LEN = 1024 * 3
-CONTEXT_LEN = 832
-
-# Phase 1 TEST_DS_LEN = 250
-# Phase 2 TEST_DS_LEN = 50
-TEST_DS_LEN = 50  # 250
-
 print("Total dataset len:", DS_LEN)
+# dataset = dataset.train_test_split(test_size=TEST_DS_LEN/DS_LEN)
 train_ds = DatasetGen_v1(
     dataset=dataset.select(range(0, DS_LEN - TEST_DS_LEN)), tokenizer=tokenizer
 )
@@ -740,11 +702,12 @@ test_ds = DatasetGen_v1(
     tokenizer=tokenizer,
 )
 
+# train_ds
 # print(tokenizer.decode(train_ds[0]['input_ids']))
 # print(json.dumps(train_ds.detokenize(0), indent=2))
 # print(train_ds.detokenize(99)['input'])
 # print(train_ds[0].keys())
-)
+# )
 
 # Train on completion only
 # Ref: https://huggingface.co/docs/trl/en/sft_trainer#train-on-completions-only
@@ -758,15 +721,16 @@ test_ds = DatasetGen_v1(
 #     # padding = 'max_length'
 # )
 
-SAVE_STEPS = 400
+# model = torch.compile(model, mode='max-autotune') #mode='default/reduce-overhead/max-autotune')
+
 training_args = TrainingArguments(
     output_dir=SAVE_PATH,
     # SmolLM2 SFT learning rate: 3.0 * 10-4
     learning_rate=5e-5,
     adam_beta1=0.9,
     adam_beta2=0.99,
-    weight_decay=0.2,
-    warmup_ratio=0.1,
+    weight_decay=0.3, # Increased from 0.2 -> 0.3
+    warmup_ratio= 500 / len(train_ds), #0.1,
     max_grad_norm=0.1,
     logging_steps=20,
     max_steps=len(train_ds),
@@ -790,10 +754,12 @@ training_args = TrainingArguments(
     push_to_hub=False,
     report_to="none",
     dataloader_pin_memory=True,
+    torch_compile=True,
+    torch_compile_backend='aot_eager'
     # dataloader_num_workers=1,
     # Gradient checkpointing - reduces memory in MPS
-    gradient_checkpointing=True,
-    gradient_checkpointing_kwargs={"use_reentrant": False},
+    # gradient_checkpointing=True,
+    # gradient_checkpointing_kwargs={"use_reentrant": False},
 )
 
 
@@ -831,13 +797,15 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_ds,
     eval_dataset=test_ds,
-    data_collator=None,
+    # packing=True,
+    # Data packing: https://huggingface.co/blog/packing-with-FA2
+    data_collator=None, #DataCollatorWithFlattening(), #data_collator, # DataCollatorWithFlattening()
     # callbacks=[MpsCacheClearCallback()]
     # callbacks=[WeightTieCallback()]
 )
 
 print("Model save path:", SAVE_PATH)
-model.config.use_cache = False
+model.config.use_cache = True
 try:
     trainer.train(resume_from_checkpoint=True)
 except ValueError:
