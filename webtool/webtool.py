@@ -40,7 +40,7 @@ from duckduckgo_search import DDGS
 #         if n_tokens > 4000:
 #             break
 
-#     summary = re.findall(r"<summary>(.*?)</summary>", model_res, re.DOTALL)#[0].strip()    
+#     summary = re.findall(r"<summary>(.*?)</summary>", model_res, re.DOTALL)#[0].strip()
 #     if summary:
 #         return summary[0].strip()
 #     return ''
@@ -63,12 +63,13 @@ webtool_def = {
     },
 }
 
+
 def tool_parse(tool_call: str):
-    '''
+    """
     Parses tool call in two different formats:
     {'function_name': 'fun1', 'arguments': {...}}
     {"function_name": "fun1", "arguments": {...}}
-    '''
+    """
 
     ret = None
     try:
@@ -82,12 +83,12 @@ def tool_parse(tool_call: str):
 
 
 def tool_call_extract(inp_str: str):
-    '''
+    """
     Extracts tool call from format:
     <tool_call>
     JSON tool call
     </tool call>
-    '''
+    """
     pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
     tool_calls = pattern.findall(inp_str)
     if tool_calls:
@@ -97,7 +98,7 @@ def tool_call_extract(inp_str: str):
 
 
 def remove_think(inp_str: str):
-    '''Removes 'think' tokens from LLM generated outputs
+    """Removes 'think' tokens from LLM generated outputs
     LLM would usually generate the following response pattern:
     <think>
     Let's think step by step...
@@ -105,7 +106,7 @@ def remove_think(inp_str: str):
     <tool_call>
     JSON tool call
     <tool_call>
-    '''
+    """
     inp_str = deepcopy(inp_str)
     pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
     thinks = pattern.findall(inp_str)
@@ -114,28 +115,30 @@ def remove_think(inp_str: str):
     return inp_str
 
 
-def replace_short_lines(text, new_line='\n'):
+def replace_short_lines(text, new_line="\n"):
     # Split the text into lines
     lines = text.splitlines()
     # Iterate through each line and replace short lines
     updated_lines = [line if len(line) >= 3 else new_line for line in lines]
     # Join the updated lines back into a single string
-    return '\n'.join(updated_lines)
+    return "\n".join(updated_lines)
 
 
 def docling_cleanup(input_str):
     # <!-- image --> tag cleanup
-    input_str = input_str.replace('<!-- image -->', '')
+    input_str = input_str.replace("<!-- image -->", "")
     # Lines with empty spaces
-    input_str = replace_short_lines(input_str, '\n')
+    input_str = replace_short_lines(input_str, "\n")
     # clean excessive newlines
     _cnt = 0
-    ret_str = ''
+    ret_str = ""
     for c in input_str:
-        if c == '\n':
+        if c == "\n":
             _cnt += 1
-            if _cnt > 2: continue
-            else: ret_str += c
+            if _cnt > 2:
+                continue
+            else:
+                ret_str += c
         else:
             _cnt = 0
             ret_str += c
@@ -143,7 +146,7 @@ def docling_cleanup(input_str):
 
 
 def url_content(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
     ascii_text = response.text.encode("ascii", "ignore")
     in_doc = InputDocument(
@@ -163,27 +166,31 @@ def search_tool(search_str, trim=4096, max_results=1):
     with DDGS() as ddg:
         rets = list(ddg.text(keywords=search_str, region="wt-wt", max_results=7))
 
-    str_rets = ''
-    web_source = []
+    str_rets = ""
+    urls = []
+    web_contents = []
     i = -1
-    while len(web_source) < max_results and i+1 < len(rets):
+    while len(urls) < max_results and i + 1 < len(rets):
         i += 1
         try:
-            print("Parsing url:", rets[i]['href'], flush=True)
-            web_content = url_content(rets[i]['href'])
+            print("Parsing url:", rets[i]["href"], flush=True)
+            web_content = url_content(rets[i]["href"])
             web_content = web_content.strip()
-            if web_content == '': continue
+            if web_content == "":
+                continue
+
+            web_contents.append(web_content)
             web_content = web_content[:trim] + " (truncated)..."
 
-            # web_content = web_content_summarize(web_content=web_content)
-            content = f"\n# Source {len(web_source)+1}:"
+            content = f"\n# Source {len(urls) + 1}:"
             content += "\n" + "-" * len(content) + f"\n\n{web_content}\n\n"
             str_rets += content
-            web_source.append(rets[i]['href'])
-        except Exception as E:
+            urls.append(rets[i]["href"])
+
+        except:
             continue
-        
-    return str_rets, web_source
+
+    return str_rets, urls, web_contents
 
 
 def recursive_chunker(text, min_char_len, stop_token):
@@ -202,7 +209,7 @@ def recursive_chunker(text, min_char_len, stop_token):
 
     # If the stop token is found, split the text at the stop token
     chunk = text[:stop_index].strip()
-    remaining_text = text[stop_index + len(stop_token):].strip()
+    remaining_text = text[stop_index + len(stop_token) :].strip()
     # If the chunk is valid (meets the minimum length), include it in the result
     chunks = []
     if len(chunk) >= min_char_len:
@@ -211,11 +218,74 @@ def recursive_chunker(text, min_char_len, stop_token):
     return chunks + recursive_chunker(remaining_text, min_char_len, stop_token)
 
 
-if __name__ == '__main__':
-    str_rets, web_source = search_tool('Implement a DFS algorithm in python', trim=None, max_results=1)
-    print(str_rets)
+def chunk_relevance(model, tokenizer, question, chunks):
+    PROMPT = """<empty_output><|im_start|>system
+You will be given a 'content_chunk' and a 'question'. You have to reply 'yes', if the 'content_chunk' is relevent to the 'question'. Otherwise reply 'no'.<|im_end|>
+<|im_start|>user
 
-    for idx, chunk in enumerate(recursive_chunker(str_rets, min_char_len=128, stop_token='```')):
-        print(f"Chunk: {idx+1}")
-        print(chunk)
-        print("-+"*10)
+Here is the 'content_chunk':
+----------------------------
+{chunk}
+
+---
+
+Here is the 'question':
+-----------------------
+{question}
+
+---
+
+Now, is the 'content_chunk' relevant based on the 'question'?
+<|im_end|>
+<|im_start|>assistant
+Based on the given 'content_chunk' and 'question' my answer is: '"""
+
+    relevance = []
+    for idx, chunk in enumerate(chunks):
+        prompt = PROMPT.format(chunk=chunk, question=question)
+        input_ids = tokenizer(prompt, return_tensors="pt")
+        ret = model.generate(
+            # streamer=streamer,
+            max_new_tokens=1,
+            do_sample=False,
+            # temperature=0.9,
+            input_ids=input_ids["input_ids"].to("mps"),
+            attention_mask=input_ids["attention_mask"].to("mps"),
+        )
+        input_token_len = input_ids["input_ids"].shape[-1]
+        ret = tokenizer.decode(ret[0][input_token_len:], skip_special_tokens=True)
+        print("LLM RET:", ret)
+        relevance.append("yes" in ret)
+    return relevance
+
+
+if __name__ == "__main__":
+    from transformers import TextStreamer, AutoModelForCausalLM, AutoTokenizer
+    import torch
+
+    PATH = "weights/SmolThink-360M-sft-v2/checkpoint-50400"
+    model = AutoModelForCausalLM.from_pretrained(
+        PATH,
+        device_map="mps",
+        low_cpu_mem_usage=True,
+        attn_implementation="eager",  # 'sdpa'
+        torch_dtype=torch.bfloat16,
+        trust_remote_code=True,
+        use_cache=False,
+        tie_word_embeddings=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(PATH)
+
+    question = "Write a python code to do DFS in adjacancy list"  
+    # "Population of Palestine"
+    str_rets, urls, web_contents = search_tool(question, trim=None, max_results=1)
+
+    # streamer = TextStreamer(tokenizer, skip_prompt=False)
+    chunks = recursive_chunker(web_contents[0], min_char_len=256, stop_token="\n\n")
+    relevance = chunk_relevance(model, tokenizer, question, chunks)
+
+    print("Total chunks:", len(chunks))
+    for c, r in zip(chunks, relevance):
+        print(c)
+        print(r)
+        print("-+" * 20)

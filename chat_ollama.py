@@ -55,7 +55,7 @@ def chat_with_ollama(user_input):
     # # Handle tool calls if present
     try:
         tool_call = tool_call_extract(collected_response)    
-        result, urls = search_tool(
+        result, urls, web_contents = search_tool(
             tool_call["arguments"]["search_str"], 
             trim=None,#1024 * 8,
             max_results=2,

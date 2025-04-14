@@ -128,7 +128,7 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="eager",
     torch_dtype=torch.bfloat16,
     trust_remote_code=True,
-    use_cache=False,
+    use_cache=True,
     tie_word_embeddings=True,
 ).to("mps")
 
@@ -638,6 +638,10 @@ if not dataset:
     )
 
 class DatasetGen_v1(torch.utils.data.Dataset):
+    ''' 
+    Memory optimized dataset. Only converts into tokens when necessary. 
+    Context stride helps the LLM to go through the sequence
+    '''
     def __init__(self, dataset, tokenizer):
         self.dataset = dataset
         self.tokenizer = tokenizer
@@ -665,8 +669,6 @@ class DatasetGen_v1(torch.utils.data.Dataset):
             max_length=CONTEXT_LEN,
             truncation=True,
             return_overflowing_tokens=True,  # Return the overflowing tokens
-            # Phase 1 stride=CONTEXT_LEN // 8
-            # Phase 2 stride=CONTEXT_LEN // 4
             stride=CONTEXT_LEN // CONTEXT_STRIDE,
             padding="max_length",
         )
@@ -681,13 +683,6 @@ class DatasetGen_v1(torch.utils.data.Dataset):
         input_ids = self.cache["input_ids"][q]
         attention_mask = self.cache["attention_mask"][q]
         labels = [-100 if t == self.tokenizer.pad_token_id else t for t in input_ids]
-        # labels = torch.as_tensor(
-        #     [input_ids[1:] + [self.tokenizer.pad_token_id]], 
-        #     dtype=input_ids.dtype, 
-        #     device=input_ids.device
-        # )
-        # labels = [input_ids[1:] + [self.tokenizer.pad_token_id]]
-
         return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 

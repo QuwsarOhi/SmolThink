@@ -277,7 +277,7 @@ while True:
     user_message = input("Your input: ")
     base_prompt = tokenizer.apply_chat_template(
         [{"role": "user", "content": user_message}],
-        tools=[webtool_def],
+        # tools=[webtool_def],
         tokenize=False,
         add_generation_prompt=True,
     )
@@ -295,7 +295,7 @@ while True:
     tool_call = tool_call_extract(gen)
     
     try:
-        result, urls = search_tool(
+        result, urls, contents = search_tool(
             tool_call["arguments"]["search_str"], 
             trim=1024 * 6,
             max_results=2,

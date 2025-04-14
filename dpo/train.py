@@ -4,23 +4,23 @@
 # https://huggingface.co/docs/trl/dpo_trainer
 # http://ethen8181.github.io/machine-learning/deep_learning/llm/rlhf/dpo.html
 # https://medium.com/@ufuk.birbiri/llm-fine-tuning-with-direct-preference-optimization-dpo-with-code-12ed92259215
+# Online DRO: https://huggingface.co/docs/trl/online_dpo_trainer
 
 # %%
 import torch
+from trl import DPOTrainer
 from datasets import load_dataset
+import sys
 
 from transformers import (
     AutoModelForCausalLM, 
-    AutoTokenizer, 
-    # TextStreamer,
-    # DataCollatorForLanguageModeling,
-    # Trainer,
-    # TrainingArguments,
-    # DataCollatorWithFlattening
+    AutoTokenizer,
+    TrainingArguments
 )
 
 SIZE = "360M"
 MODEL_PATH = f"HuggingFaceTB/SmolLM2-{SIZE}-Instruct"
+SAVE_STEPS = 20
 
 # %%
 model = AutoModelForCausalLM.from_pretrained(
@@ -45,12 +45,8 @@ tokenizer.truncation_side = 'left' # to prevent cutting off last generation
 # %%
 # Load dataset from the hub
 dataset = load_dataset("argilla/ultrafeedback-binarized-preferences-cleaned", split="train")
-dataset = dataset.shuffle().select(range(100))
+dataset = dataset.shuffle().select(range(3))
 
-
-# %%
-
-print(dataset[0])
 
 # %%
 
@@ -78,69 +74,71 @@ def create_triplet(data, tokenizer):
         "rejected": rejected
     }
 
-ds = dataset.map(create_triplet, fn_kwargs={"tokenizer": tokenizer})
-ds = ds.train_test_split(test_size=0.05)
+train_ds = dataset.map(create_triplet, fn_kwargs={"tokenizer": tokenizer})
+train_ds = train_ds.train_test_split(test_size=0.05)
 
-print(ds['train'][0]["prompt"])
+print(train_ds['train'][0]["prompt"])
 print("-+"*10)
-print(ds['train'][0]["chosen"])
+print(train_ds['train'][0]["chosen"])
 print("-+"*10)
-print(ds['train'][0]["rejected"])
-
-
-# the maximum length of the prompt 
-prompt_length = 1024
-# the maximum length of the prompt + chosen or rejected response
-max_seq_length = 1512
+print(train_ds['train'][0]["rejected"])
+sys.exit()
 
 
 # %%
-
-from transformers import TrainingArguments
  
 args = TrainingArguments(
-    output_dir="doplhin-dpo",               # directory to save and repository id
-    num_train_epochs=1,                     # number of training epochs
-    per_device_train_batch_size=12,         # batch size per device during training
-    per_device_eval_batch_size=4,           # batch size for evaluation
-    gradient_accumulation_steps=1,          # number of steps before performing a backward/update pass
-    gradient_checkpointing=True,            # use gradient checkpointing to save memory
-    optim="adamw_torch_fused",              # use fused adamw optimizer
-    learning_rate=5e-5,                     # 10x higher LR than QLoRA paper
-    max_grad_norm=0.3,                      # max gradient norm based on QLoRA paper
-    warmup_ratio=0.1,                       # warmup ratio based on QLoRA paper
-    lr_scheduler_type="cosine",             # use cosine learning rate scheduler
-    logging_steps=25,                       # log every 25 steps
-    save_steps=500,                         # when to save checkpoint
-    save_total_limit=2,                     # limit the total amount of checkpoints
-    evaluation_strategy="steps",            # evaluate every 1000 steps
-    eval_steps=700,                         # when to evaluate
-    bf16=True,                              # use bfloat16 precision
-    tf32=True,                              # use tf32 precision
-    push_to_hub=False,                      # push model to hub
-    report_to="tensorboard",                # report metrics to tensorboard
+    output_dir="weights/test-dpo",
+    
+    learning_rate= 1e-6,
+    lr_scheduler_type="cosine",
+    adam_beta1=0.9,
+    adam_beta2=0.95,
+    optim="adamw_torch",    # adamw_torch, adafactor
+    weight_decay=0.01,
+    max_grad_norm=1.0,      # Reduce to 0.1 if NaN
+    warmup_ratio= 0.1,
+
+    num_train_epochs=1,
+    logging_strategy="steps",
+    eval_strategy="steps",
+    eval_steps=SAVE_STEPS,
+    save_strategy="steps",  #'steps', 'no', 'best',
+    logging_steps=20,
+    max_steps=len(train_ds),
+    save_steps=SAVE_STEPS,
+    save_total_limit=3,
+
+    # Memory reduction
+    gradient_checkpointing=True,
+    gradient_checkpointing_kwargs={"use_reentrant": False},
+    bf16=True,
+    bf16_full_eval=True,
+    per_device_train_batch_size=1,
+    per_device_eval_batch_size=1,
+    gradient_accumulation_steps=1,
+    torch_empty_cache_steps=SAVE_STEPS,
+    push_to_hub=False,
+    report_to="none",
+    dataloader_pin_memory=True,
+
+    # Speedups
+    torch_compile=True,
+    torch_compile_backend='aot_eager'
 )
- 
-dpo_args = {
-    "beta": 0.1,                            # The beta factor in DPO loss. Higher beta means less divergence
-    "loss_type": "sigmoid"                  # The loss type for DPO.
-}
 
 
-from trl import DPOTrainer
- 
 trainer = DPOTrainer(
     model,
     ref_model=None, # set to none since we use peft
-    peft_config=peft_config,
     args=args,
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
     tokenizer=tokenizer,
-    max_length=max_seq_length,
-    max_prompt_length=prompt_length,
-    beta=dpo_args["beta"],
-    loss_type=dpo_args["loss_type"],
+    max_length=1024,
+    max_prompt_length=512,
+    beta=0.5,                   # The beta factor in DPO loss. Higher beta means less divergence
+    loss_type="sigmoid",        # The loss type for DPO
 )
 
 # start training, the model will be automatically saved to the hub and the output directory
