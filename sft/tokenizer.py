@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 
 CHAT_TEMPLATE = """<empty_output>{% for message in messages %}
 {% if loop.first and messages[0]['role'] != 'system' %}
-{{ '<|im_start|>system\nYou are a helpful AI assistant named SmolLM<|im_end|>' }}
+{{ '<|im_start|>system\nYou are a helpful AI assistant named SmolLM. You think inside <think></think> tags when needed, and always respond inside <answer></answer> tags to the user.<|im_end|>' }}
 {% endif %}
 {{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>'}}
 {% endfor %}

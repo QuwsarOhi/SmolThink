@@ -35,13 +35,15 @@ def chat_with_ollama(user_input):
     
     # First call: Initial chat with streaming enabled
     response_stream = ollama.chat(
-        model="SmolThink",
+        model="qwen3:0.6b",
         messages=messages,
-        # tools=[webtool_def],
+        tools=[webtool_def],
         stream=True,
         options={
             'ctx': 1024*8,
-            'temperature': 0.8
+            'temperature': 0.8,
+            'repeat_penalty': 1.2,
+            'top_p': 0.95
         }
     )
     

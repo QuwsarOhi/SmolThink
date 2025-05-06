@@ -33,9 +33,10 @@ from transformers import (
     StoppingCriteria,
     TextStreamer,
 )
-
+import peft
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from webtool.webtool import search_tool, webtool_def, tool_call_extract, tool_parse, remove_think
+from sft.tokenizer import get_tokenizer
 
 warnings.filterwarnings("ignore")
 
@@ -51,19 +52,19 @@ def get_latest_checkpoint(base_directory):
     latest_checkpoint = max(checkpoint_dirs, key=lambda x: int(x.split("-")[1]))
     return os.path.join(base_directory, latest_checkpoint)
 
-SIZE = "360M"
-FILE_PATH = get_latest_checkpoint(
-    f"/Users/ohi/Documents/GitHub/PersonalAssistant/weights/SmolThink-{SIZE}-sft-v2"
+SIZE = ["135M", "360M"][1]
+MODEL_PATH = get_latest_checkpoint(
+    f"/Users/ohi/Documents/GitHub/SmolThink/weights/SmolThink-{SIZE}-sft"
 )
 
-TOKENIZER_PATH = FILE_PATH
-LORA_PATH = os.path.join(FILE_PATH, "smolthink")
-print("LoRA checkpoint:", LORA_PATH)
-
+TOKENIZER_PATH = MODEL_PATH
+# LORA_PATH = os.path.join(FILE_PATH, "smolthink")
+# print("LoRA checkpoint:", LORA_PATH)
+print("Checkpoint path:", MODEL_PATH)
 
 # config = peft.PeftConfig.from_pretrained(LORA_PATH)
 model = AutoModelForCausalLM.from_pretrained(
-    FILE_PATH,
+    MODEL_PATH,
     device_map="mps",
     low_cpu_mem_usage=True,
     attn_implementation="eager",  # 'sdpa'
@@ -80,26 +81,26 @@ print(sum(p.numel() for p in model.parameters()) / 1e6)
 ### IF LORA WAS USED
 # model = peft.PeftModel.from_pretrained(
 #    model,
-#    LORA_PATH,
+#    FILE_PATH,
 #    is_trainable=False, # 👈 here,
 # )
-#
+
 # lora_param = 0
 # lora_layers = 0
 # for name, param in model.named_parameters():
 #     if 'lora' in name:
 #         lora_param += param.numel()
 #         lora_layers += 1
-#
+
 # def into_million(val):
 #     return f"{val / 1000 / 1000 :.2f} million"
-#
+
 # print(f"Total LoRA params: {into_million(lora_param)}   |   Total LoRA layers: {lora_layers}")
-#
+
 # model = model.merge_and_unload(safe_merge=True).eval().to(torch.bfloat16)
 # print(f"Merged model+LoRA took {model.get_memory_footprint()/1e9:.2f} GB of space (with buffer)")
 # print(sum(p.numel() for p in model.parameters()) / 1e6)
-#
+
 # print("Are LoRA weight of embed_tokens and lm_head same?", torch.equal(model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight, model.base_model.model.lm_head.modules_to_save["smolthink"].weight))
 # model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight = model.base_model.model.lm_head.modules_to_save["smolthink"].weight
 # print("LoRA embed_tokens and lm_head sharing the same memory?", model.base_model.model.model.embed_tokens.modules_to_save["smolthink"].weight.data.data_ptr() == model.base_model.model.lm_head.modules_to_save["smolthink"].weight.data.data_ptr())
@@ -116,11 +117,12 @@ print(
 )
 print("\n-----\n")
 
-tokenizer = AutoTokenizer.from_pretrained(
-    TOKENIZER_PATH,
-    add_bos_token=True,
-    add_eos_token=True,
-)
+# tokenizer = AutoTokenizer.from_pretrained(
+#     MODEL_PATH,
+#     add_bos_token=True,
+#     add_eos_token=True,
+# )
+tokenizer = get_tokenizer(MODEL_PATH)
 # tokenizer.pad_token = tokenizer.unk_token
 streamer = TextStreamer(tokenizer, skip_prompt=False)
 
